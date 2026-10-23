@@ -80,15 +80,15 @@ param(
 
     [Parameter()]
     [Alias("L")]
-    [ValidateSet("auto", "hu", "en")]
-    [string]$Lang = "auto",
+    [ValidateSet("", "auto", "hu", "en")]
+    [string]$Lang = "",
 
     [Parameter()]
     [Alias("V")]
     [switch]$Version,
 
     [Parameter()]
-    [Alias("H", "?")]
+    [Alias("H")]
     [switch]$Help
 )
 
@@ -96,7 +96,7 @@ param(
 # ESZKÖZ ÖNVERZIÓZÁSA (Antigravity frissíti a saját repó alapján)
 # =====================================================================
 $ToolName = "FireFlow"
-$ToolVersion = "v1.2.0"
+$ToolVersion = "v1.2.1"
 
 $ErrorActionPreference = "Stop"
 
@@ -106,11 +106,40 @@ try {
     [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 } catch {}
 
-# Nyelv meghatározása / Language resolution
-$ActiveLang = if ($Lang -eq "auto") {
-    if ((Get-UICulture).TwoLetterISOLanguageName -eq "hu") { "hu" } else { "en" }
+# Nyelvi konfigurációs fájl elérési útja / Language config file path
+$ScriptDir = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+    $PSScriptRoot
+} elseif (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) {
+    Split-Path -Parent $PSCommandPath
 } else {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+$LangConfigFile = Join-Path $ScriptDir ".fireflow-lang"
+
+# Ha a felhasználó explicit megadta a -Lang paramétert / Handle explicit -Lang
+if ($PSBoundParameters.ContainsKey('Lang') -and -not [string]::IsNullOrWhiteSpace($Lang)) {
+    if ($Lang -eq "auto") {
+        if (Test-Path $LangConfigFile) {
+            Remove-Item $LangConfigFile -Force -ErrorAction SilentlyContinue
+        }
+    } elseif ($Lang -eq "hu" -or $Lang -eq "en") {
+        Set-Content -Path $LangConfigFile -Value $Lang -Encoding UTF8 -NoNewline
+    }
+}
+
+# Korábban elmentett nyelv beolvasása / Read saved language preference
+$SavedLang = ""
+if ($Lang -ne "auto" -and (Test-Path $LangConfigFile)) {
+    $SavedLang = (Get-Content $LangConfigFile -Raw -ErrorAction SilentlyContinue).Trim()
+}
+
+# Aktív nyelv meghatározása / Determine active language
+$ActiveLang = if ($Lang -eq "hu" -or $Lang -eq "en") {
     $Lang
+} elseif ($SavedLang -eq "hu" -or $SavedLang -eq "en") {
+    $SavedLang
+} else {
+    if ((Get-UICulture).TwoLetterISOLanguageName -eq "hu") { "hu" } else { "en" }
 }
 
 # =====================================================================
@@ -124,6 +153,9 @@ $Msg = @{
         ProfileFile          = "Profil fájl: {0}"
         InstallSuccessDesc   = "Mostantól bármely Firebase projekt könyvtárából futtatható a 'fireflow' parancs."
         InstallReload        = "Azonnali használathoz töltsd újra a profilodat vagy nyiss új terminált:"
+        LangSetAuto          = "Alapértelmezett nyelv visszaállítva: Automatikus (rendszernyelv)."
+        LangSetHu            = "Alapértelmezett nyelv beállítva: Magyar (mentve)."
+        LangSetEn            = "Alapértelmezett nyelv beállítva: Angol (mentve)."
         FailPrefix           = "[$ToolName HIBA]: {0}"
         ErrPreviewPromote    = "A -Preview (-P) és -Promote (-PR) kapcsolók nem használhatók egyszerre!"
         ErrNotGitRepo        = "Ez a mappa nem egy Git repository."
@@ -181,6 +213,9 @@ $Msg = @{
         ProfileFile          = "Profile file: {0}"
         InstallSuccessDesc   = "You can now run 'fireflow' from any Firebase project directory."
         InstallReload        = "To use it immediately, reload your profile or open a new terminal:"
+        LangSetAuto          = "Default language reset to: Auto (system culture)."
+        LangSetHu            = "Default language set to: Hungarian (saved)."
+        LangSetEn            = "Default language set to: English (saved)."
         FailPrefix           = "[$ToolName ERROR]: {0}"
         ErrPreviewPromote    = "The -Preview (-P) and -Promote (-PR) switches cannot be used together!"
         ErrNotGitRepo        = "This directory is not a Git repository."
@@ -233,6 +268,24 @@ $Msg = @{
     }
 }[$ActiveLang]
 
+# Önálló nyelvváltás kezelése / Handle standalone -Lang switch
+if ($PSBoundParameters.Count -eq 1 -and $PSBoundParameters.ContainsKey('Lang')) {
+    if ($Lang -eq "auto") {
+        Write-Host ""
+        Write-Host $Msg.LangSetAuto -ForegroundColor Green
+        Write-Host ""
+    } elseif ($Lang -eq "hu") {
+        Write-Host ""
+        Write-Host $Msg.LangSetHu -ForegroundColor Green
+        Write-Host ""
+    } elseif ($Lang -eq "en") {
+        Write-Host ""
+        Write-Host $Msg.LangSetEn -ForegroundColor Green
+        Write-Host ""
+    }
+    exit 0
+}
+
 function Show-Help {
     if ($ActiveLang -eq "hu") {
         Write-Host ""
@@ -260,12 +313,13 @@ function Show-Help {
         Write-Host "  -S,  -SkipHostingSync   HTML verziószinkron (automatikus hosting deploy) kihagyása"
         Write-Host "  -Y,  -Yes               Interaktív [I/N] jóváhagyás átugrása (azonnali futtatás)"
         Write-Host "  -I,  -Install           Globális parancs ('fireflow') regisztrálása a PowerShell profilban"
-        Write-Host "  -L,  -Lang <hu|en|auto> Megjelenítési nyelv kiválasztása (alapértelmezett: 'auto')"
+        Write-Host "  -L,  -Lang <hu|en|auto> Megjelenítési nyelv mentése (alapértelmezett: 'auto')"
         Write-Host "  -V,  -Version           Kiírja a $ToolName aktuális verziószámát"
-        Write-Host "  -H,  -Help, -?          Megjeleníti ezt a súgót"
+        Write-Host "  -H,  -Help              Megjeleníti ezt a súgót"
         Write-Host ""
         Write-Host "GLOBÁLIS HASZNÁLAT:" -ForegroundColor Yellow
         Write-Host "  A 'fireflow -Install' futtatása után a parancs bármely projekt könyvtárából elérhető."
+        Write-Host "  A 'fireflow -Lang en' önmagában futtatva elmenti az alapértelmezett nyelvet."
         Write-Host ""
         Write-Host "GYAKORLATI PÉLDÁK (PUSKÁZÓ):" -ForegroundColor Yellow
         Write-Host "  1. Gyors éles (patch) kiadás:" -ForegroundColor Cyan
@@ -309,12 +363,13 @@ function Show-Help {
         Write-Host "  -S,  -SkipHostingSync   Skip HTML version sync (automatic hosting deploy)"
         Write-Host "  -Y,  -Yes               Skip interactive confirmation [Y/N] (non-interactive run)"
         Write-Host "  -I,  -Install           Register global 'fireflow' command in PowerShell profile"
-        Write-Host "  -L,  -Lang <hu|en|auto> Display language selection (default: 'auto')"
+        Write-Host "  -L,  -Lang <hu|en|auto> Save display language preference (default: 'auto')"
         Write-Host "  -V,  -Version           Print current $ToolName version"
-        Write-Host "  -H,  -Help, -?          Display this help message"
+        Write-Host "  -H,  -Help              Display this help message"
         Write-Host ""
         Write-Host "GLOBAL USAGE:" -ForegroundColor Yellow
         Write-Host "  After running 'fireflow -Install', the command is available from any project folder."
+        Write-Host "  Running 'fireflow -Lang en' standalone saves the default language preference."
         Write-Host ""
         Write-Host "PRACTICAL EXAMPLES (CHEAT SHEET):" -ForegroundColor Yellow
         Write-Host "  1. Quick production (patch) release:" -ForegroundColor Cyan
@@ -335,14 +390,18 @@ function Show-Help {
     }
 }
 
-if ($Help) {
+if ($Help -or $CommitMessage -in @("-h", "-Help", "--help", "-?", "/?", "-H", "-help")) {
     Show-Help
     exit 0
 }
 
-if ($Version) {
+if ($Version -or $CommitMessage -in @("-v", "-Version", "--version", "-V", "-version")) {
     Write-Host $Msg.VersionOutput -ForegroundColor Cyan
     exit 0
+}
+
+if ($Install -or $CommitMessage -in @("-i", "-Install", "-I", "-install")) {
+    $Install = $true
 }
 
 if ($Install) {
@@ -368,12 +427,12 @@ if ($Install) {
     $ProfileContent = Get-Content -Path $ProfilePath -Raw -ErrorAction SilentlyContinue
     if ($null -eq $ProfileContent) { $ProfileContent = "" }
 
-    $FunctionDef = "`r`n# FireFlow CLI Global Function`r`nfunction fireflow { & `"$ScriptFullPath`" @args }`r`n"
+    $FunctionDef = "`r`n# FireFlow CLI Global Function`r`nfunction fireflow { `$a = @(`$args | ForEach-Object { if (`$_ -eq '-?') { '-h' } else { `$_ } }); & `"$ScriptFullPath`" @a }`r`n"
 
     if ($ProfileContent -match 'function\s+fireflow\b') {
-        $Pattern = '(?ms)([\r\n]*# FireFlow CLI Global Function[\r\n]*)?function\s+fireflow\s*\{[^}]*\}[\r\n]*'
-        $CleanedContent = [regex]::Replace($ProfileContent, $Pattern, '').TrimEnd()
-        $NewProfileContent = $CleanedContent + "`r`n`r`n# FireFlow CLI Global Function`r`nfunction fireflow { & `"$ScriptFullPath`" @args }`r`n"
+        $lines = $ProfileContent -split '\r?\n'
+        $filtered = @($lines | Where-Object { $_ -notmatch '^\s*#\s*FireFlow CLI Global Function' -and $_ -notmatch '^\s*function\s+fireflow\b' })
+        $NewProfileContent = ($filtered -join "`r`n").TrimEnd() + $FunctionDef
         Set-Content -Path $ProfilePath -Value $NewProfileContent -Encoding UTF8
         Write-Host ""
         Write-Host $Msg.InstallUpdated -ForegroundColor Green

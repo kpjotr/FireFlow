@@ -7,7 +7,7 @@
 <a id="fireflow-cli-en"></a>
 # FireFlow CLI (English)
 
-**Version:** `v1.2.0`  
+**Version:** `v1.2.1`  
 **Release Date:** October 23, 2026  
 **Type:** Universal Firebase Deploy, Git Branch & Version Management Tool (PowerShell)  
 **License:** GNU GPLv3
@@ -22,14 +22,14 @@ Its goal is to coordinate the deployment of **Firebase Hosting, Cloud Functions,
 
 ### Key Features
 * **Short, one- or two-letter switches:** Minimal typing for daily workflows (`-P`, `-PR`, `-C`, `-T`, `-O`, `-I`, `-L`, `-h`).
-* **Bilingual CLI & Auto-detection:** Full English and Hungarian support (`-L en` / `-L hu` / `-L auto`), automatically resolving based on OS culture settings.
-* **Global CLI Installation (`-Install` / `-I`):** Register once in PowerShell `$PROFILE`, allowing execution simply via `fireflow` from any project directory without copying the script into each repository.
+* **Bilingual CLI with Persistent Preference:** Full English and Hungarian support (`-L en` / `-L hu` / `-L auto`). The chosen language is saved persistently in a local `.fireflow-lang` file for future runs. If not set, it automatically detects your OS culture.
+* **Global CLI Installation (`-Install` / `-I`):** Register once in PowerShell `$PROFILE`, allowing execution simply via `fireflow` from any project directory without copying the script into each repository. Also handles `-?` gracefully without native PowerShell help interception.
 * **In-Place Version Injection & Guaranteed Restoration:** Injects the current version tag directly into source HTML files replacing `__VERSION__` for the duration of the deployment, and restores the original placeholder immediately before Git commit inside a protected `finally` block.
 * **Global Version Synchronization:** Updates the version displayed in HTML (and deploys hosting) even when deploying backend-only changes (e.g. `firestore:rules` or `functions`).
 * **Multi-Site (Target) Support:** Automatically parses `firebase.json` and supports specific hosting targets.
 * **Integrated Preview & Branch Workflow:** In preview mode (`-P`), automatically switches to a dedicated Git branch (`preview/<channel>`), increments test build numbers (`vX.Y.Z-preview.N`), and publishes to the Firebase Preview Channel.
 * **One-Step Promotion & Merge:** In promote mode (`-PR`), merges the tested preview branch into `main`, strips the preview tag to a clean release version (`vX.Y.Z`), and deploys directly to production.
-* **Built-in Interactive Terminal Help:** Run `fireflow -h` anytime to display a colorful quick reference cheat sheet.
+* **Built-in Interactive Terminal Help:** Run `fireflow -h` or `fireflow -?` anytime to display a colorful quick reference cheat sheet.
 
 ---
 
@@ -66,9 +66,9 @@ PowerShell parameters and switches are case-insensitive (`-CM` = `-cm`, `-P` = `
 | **`-S`** | `-SkipHostingSync`| `false` | Disable automatic forced update of HTML version number (and hosting deploy). |
 | **`-Y`** | `-Yes` | `false` | Skip interactive `[Y/N]` confirmation (for automated CI/CD runs). |
 | **`-I`** | `-Install` | `false` | **Global Setup:** Registers the `fireflow` command in PowerShell `$PROFILE`. |
-| **`-L`** | `-Lang` | `auto` | Language selection: `auto` (detects OS UI language), `hu` (Hungarian), `en` (English). |
+| **`-L`** | `-Lang` | `auto` | Language selection: `auto` (system culture), `hu` (Hungarian), `en` (English). Saves preference persistently for future runs (`-L auto` resets). |
 | **`-V`** | `-Version` | `false` | Prints the FireFlow CLI version and exits. |
-| **`-H`**, **`-?`** | `-Help` | `false` | Displays the detailed command-line help cheat sheet and exits. |
+| **`-H`** | `-Help` | `false` | Displays the detailed command-line help cheat sheet and exits. |
 
 ---
 
@@ -102,10 +102,23 @@ Once all tests succeed on the preview channel, this mode finalizes the productio
 ```
 
 ### Help and Version Queries
+*(Supports `-h`, `-Help`, and `-?` via global `fireflow`)*
 ```powershell
 fireflow -h
+fireflow -?
 fireflow -v
-fireflow -Help -Lang en
+```
+
+### Persistent Language Switching
+```powershell
+# Set persistent default language to English
+fireflow -Lang en
+
+# Set persistent default language to Hungarian
+fireflow -Lang hu
+
+# Reset to automatic OS language detection
+fireflow -Lang auto
 ```
 
 ### 1. Quick Production (Patch) Release
@@ -149,7 +162,7 @@ This project is licensed under the [GNU General Public License v3.0 (GPLv3)](LIC
 <a id="fireflow-cli-hu"></a>
 # FireFlow CLI (Magyar)
 
-**Verzió:** `v1.2.0`  
+**Verzió:** `v1.2.1`  
 **Kiadás dátuma:** 2026. október 23.  
 **Típus:** Univerzális Firebase Deploy, Git Branch és Verziókezelő Eszköz (PowerShell)  
 **Licenc:** GNU GPLv3
@@ -164,14 +177,14 @@ Célja, hogy egyetlen rövid paranccsal összehangolja a **Firebase Hosting, Clo
 
 ### Főbb képességek
 * **Rövid, egy-két betűs kapcsolók:** Minimális gépelés a napi munkafolyamatok során (`-P`, `-PR`, `-C`, `-T`, `-O`, `-I`, `-L`, `-h`).
-* **Kétnyelvű működés és automatikus felismerés:** Teljes angol és magyar támogatás (`-L en` / `-L hu` / `-L auto`), a rendszer nyelvi beállításainak automatikus észlelésével.
-* **Globális CLI telepítés (`-Install` / `-I`):** Egyszeri beállítás a PowerShell `$PROFILE`-ban, amely lehetővé teszi a `fireflow` futtatását bármely könyvtárból a script repókba másolgatása nélkül.
+* **Kétnyelvű működés és tartós nyelvmentés:** Teljes angol és magyar támogatás (`-L en` / `-L hu` / `-L auto`). A választott nyelvet a script a helyi `.fireflow-lang` fájlban tartósan elmenti a jövőbeli futtatásokhoz. Ha nincs beállítva, automatikusan igazodik a rendszernyelvhez.
+* **Globális CLI telepítés (`-Install` / `-I`):** Egyszeri beállítás a PowerShell `$PROFILE`-ban, amely lehetővé teszi a `fireflow` futtatását bármely könyvtárból a script repókba másolgatása nélkül. Kezeli a `-?` kapcsolót is a natív Get-Help felülbírálásával.
 * **In-Place Verzió-injektálás és Visszaállítás:** Ideiglenes mappák másolgatása helyett közvetlenül a forrás HTML fájlokban cseréli le a `__VERSION__` helyőrzőt a deploy idejére, majd egy védett `finally` blokkban azonnal visszaállítja az eredeti állapotot a Git commit előtt.
 * **Globális Verziószinkron:** Akkor is frissíti a HTML-ben látható verziószámot (és a hostingot), ha az adott körben csak háttérszolgáltatást (pl. `firestore:rules` vagy `functions`) módosítottál.
 * **Multi-Site (Target) támogatás:** Automatikusan elemzi a `firebase.json` fájlt, és kezeli az egyedi hosting targeteket.
 * **Integrált Preview és Branch munkafolyamat:** Teszteléskor (`-P`) automatikusan külön Git ágra vált (`preview/<csatorna>`), növeli a teszt build számát (`vX.Y.Z-preview.N`), és a Firebase Preview Channelre publikál.
 * **Egygombos Promote és Merge:** A tesztelés végeztével (`-PR`) beolvasztja a preview ágat a főágba (`main`), lecsupaszítja a verziószámot véglegesre (`vX.Y.Z`), és élesíti a rendszert.
-* **Beépített terminálos súgó:** A `fireflow -h` parancs bármikor megjeleníti a színes puskázót magyar vagy angol nyelven.
+* **Beépített terminálos súgó:** A `fireflow -h` vagy `fireflow -?` parancs bármikor megjeleníti a színes puskázót magyar vagy angol nyelven.
 
 ---
 
@@ -208,9 +221,9 @@ A PowerShellben a kapcsolók nem kis- és nagybetű érzékenyek (`-CM` = `-cm`,
 | **`-S`** | `-SkipHostingSync`| `false` | Kikapcsolja a HTML verziószám (és a hosting) automatikus kényszerített frissítését. |
 | **`-Y`** | `-Yes` | `false` | Átugorja az interaktív `[I/N]` megerősítést (automatizált futtatáshoz). |
 | **`-I`** | `-Install` | `false` | **Globális telepítés:** Regisztrálja a `fireflow` parancsot a PowerShell `$PROFILE`-ban. |
-| **`-L`** | `-Lang` | `auto` | Megjelenítési nyelv: `auto` (rendszernyelv alapján), `hu` (magyar), `en` (angol). |
+| **`-L`** | `-Lang` | `auto` | Megjelenítési nyelv: `auto` (rendszernyelv alapján), `hu` (magyar), `en` (angol). Tartósan elmenti a választást a jövőbeli futtatásokhoz (`-L auto` visszaállítja). |
 | **`-V`** | `-Version` | `false` | Kiírja a FireFlow CLI eszköz saját verziószámát, majd kilép. |
-| **`-H`**, **`-?`** | `-Help` | `false` | Megjeleníti a részletes parancssori súgót és puskázót, majd kilép. |
+| **`-H`** | `-Help` | `false` | Megjeleníti a részletes parancssori súgót és puskázót, majd kilép. |
 
 ---
 
@@ -244,10 +257,23 @@ Amikor a preview csatornán minden teszt sikeres volt, ez a mód véglegesíti a
 ```
 
 ### Súgó és verzió lekérdezése
+*(Globális telepítés esetén a `-h`, `-Help` és `-?` is működik)*
 ```powershell
 fireflow -h
+fireflow -?
 fireflow -v
-fireflow -Help -Lang en
+```
+
+### Alapértelmezett nyelv tartós beállítása
+```powershell
+# Nyelv tartós beállítása angolra
+fireflow -Lang en
+
+# Nyelv tartós beállítása magyarra
+fireflow -Lang hu
+
+# Visszaállítás az operációs rendszer nyelvéhez
+fireflow -Lang auto
 ```
 
 ### 1. Gyors éles (patch) kiadás
