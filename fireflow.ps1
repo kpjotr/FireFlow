@@ -1,7 +1,13 @@
 ﻿<#
 .SYNOPSIS
-    FireFlow - Univerzális Firebase Deploy, Git Branch és Verziókezelő CLI Eszköz
+    FireFlow - Universal Firebase Deploy, Git Branch & Version Management CLI Tool / Univerzális Firebase Deploy, Git Branch és Verziókezelő CLI Eszköz
 .DESCRIPTION
+    English:
+    Manages the deployment process of Firebase projects (Hosting, Functions, Firestore, Storage)
+    for both live and preview channels, keeping the version number displayed in HTML files
+    synchronized with Git tags.
+
+    Magyar:
     Kezeli a Firebase projektek (Hosting, Functions, Firestore, Storage) éles és preview 
     deploy folyamatát, szinkronban tartva a HTML fájlokban megjelenő verziószámot a Git tagekkel.
 
@@ -73,6 +79,11 @@ param(
     [switch]$Install,
 
     [Parameter()]
+    [Alias("L")]
+    [ValidateSet("auto", "hu", "en")]
+    [string]$Lang = "auto",
+
+    [Parameter()]
     [Alias("V")]
     [switch]$Version,
 
@@ -85,7 +96,7 @@ param(
 # ESZKÖZ ÖNVERZIÓZÁSA (Antigravity frissíti a saját repó alapján)
 # =====================================================================
 $ToolName = "FireFlow"
-$ToolVersion = "v1.1.0"
+$ToolVersion = "v1.2.0"
 
 $ErrorActionPreference = "Stop"
 
@@ -95,54 +106,233 @@ try {
     [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 } catch {}
 
+# Nyelv meghatározása / Language resolution
+$ActiveLang = if ($Lang -eq "auto") {
+    if ((Get-UICulture).TwoLetterISOLanguageName -eq "hu") { "hu" } else { "en" }
+} else {
+    $Lang
+}
+
+# =====================================================================
+# LOKALIZÁCIÓ / LOCALIZATION DICTIONARY
+# =====================================================================
+$Msg = @{
+    hu = @{
+        VersionOutput        = "$ToolName CLI - Verzió: $ToolVersion"
+        InstallUpdated       = "[$ToolName] A globális parancs sikeresen frissítve a PowerShell profilodban!"
+        InstallRegistered    = "[$ToolName] A globális parancs sikeresen regisztrálva a PowerShell profilodban!"
+        ProfileFile          = "Profil fájl: {0}"
+        InstallSuccessDesc   = "Mostantól bármely Firebase projekt könyvtárából futtatható a 'fireflow' parancs."
+        InstallReload        = "Azonnali használathoz töltsd újra a profilodat vagy nyiss új terminált:"
+        FailPrefix           = "[$ToolName HIBA]: {0}"
+        ErrPreviewPromote    = "A -Preview (-P) és -Promote (-PR) kapcsolók nem használhatók egyszerre!"
+        ErrNotGitRepo        = "Ez a mappa nem egy Git repository."
+        ErrFirebaseJson      = "A firebase.json nem található a projekt gyökerében."
+        ErrGitNotFound       = "A 'git' parancs nem található."
+        ErrFirebaseNotFound  = "A Firebase CLI ('firebase') nem található."
+        ErrInvalidBaseVer    = "Érvénytelen alapverzió formátum: {0}"
+        ErrNoModifiedFiles   = "Nincs módosított fájl a munkakönyvtárban. A deploy leállt. (Súgó: fireflow -h)"
+        ErrPromoteDirty      = "A 'promote' (-PR) mód tiszta munkakönyvtárat igényel. Előbb commitold vagy stasheld a változásokat!"
+        PromptCommitMsg      = "Add meg a commit üzenetet"
+        ErrEmptyCommitMsg    = "A commit üzenet nem lehet üres!"
+        PlanTitle            = "KIADÁSI TERV ({0})"
+        PlanProjectRoot      = "Projekt gyökér:    {0}"
+        PlanCurrentBranch    = "Jelenlegi Git ág:  {0}"
+        PlanTargetBranch     = "Cél Git ág:        {0} (Automatikus váltás/létrehozás)"
+        PlanMergeBranch      = "Beolvasztandó ág:  {0} -> {1}"
+        PlanBaseVer          = "Bázis verzió:      {0}"
+        PlanNewVer           = "Új verzió (Tag):   {0} ({1})"
+        PlanFirebaseTargets  = "Firebase célok:    {0}"
+        PlanPreviewChannel   = "Preview csatorna:  {0}"
+        PlanCommitMsg        = "Commit üzenet:     {0}"
+        PlanHtmlFiles        = "Verziózandó HTML fájlok (__VERSION__ -> {0}):"
+        PlanNoPlaceholder    = "FIGYELEM: Nem található '__VERSION__' placeholder egyetlen HTML fájlban sem!"
+        PlanModifiedFiles    = "Módosított / Commitra váró fájlok (ellenőrizd, nincs-e köztük szemét!):"
+        PromptConfirm        = "Elindítod a folyamatot ezekkel a beállításokkal? [I/N]"
+        UserCancelled        = "Folyamat megszakítva a felhasználó által."
+        SwitchingPreview     = "`nÁtváltás a preview ágra: {0}..."
+        ErrSwitchBranch      = "Nem sikerült átváltani a(z) {0} ágra."
+        SwitchingPromote     = "`nÁtváltás a főágra ({0}) és '{1}' beolvasztása..."
+        ErrMergeFailed       = "A Git merge ütközés vagy hiba miatt sikertelen. Oldd fel a konfliktusokat!"
+        DeployStart          = "`nFirebase deploy indítása..."
+        DeployBackend        = "Háttérszolgáltatások frissítése (--only {0})..."
+        ErrBackendDeploy     = "A háttérszolgáltatások deploy-a sikertelen!"
+        DeployHosting        = "Hosting feltöltése a(z) '{0}' preview csatornára..."
+        ErrPreviewDeploy     = "A Firebase preview channel deploy sikertelen!"
+        ErrLiveDeploy        = "A Firebase éles deploy sikertelen!"
+        RestoringHtml        = "`nForrás HTML fájlok (__VERSION__ placeholder) visszaállítása..."
+        GitOpsStart          = "`nGit verziókezelési műveletek végrehajtása..."
+        ErrGitAdd            = "A 'git add -A' művelet sikertelen."
+        ErrGitCommit         = "A Git commit sikertelen."
+        ErrGitTag            = "A Git tag ({0}) létrehozása sikertelen."
+        PushingRemote        = "Feltöltés a távoli repository-ba (origin/{0} + {1})..."
+        ErrPushBranch        = "A Git branch push sikertelen."
+        ErrPushTag           = "A Git tag push sikertelen."
+        SuccessTitle         = "SIKERES FOLYAMAT!"
+        SuccessMode          = "Mód:          {0}"
+        SuccessBranch        = "Aktív ág:     {0}"
+        SuccessTag           = "Kiadott tag:  {0}"
+        SuccessSynced        = "Minden változás élesítve és szinkronizálva a GitHub-on!"
+    }
+    en = @{
+        VersionOutput        = "$ToolName CLI - Version: $ToolVersion"
+        InstallUpdated       = "[$ToolName] Global command successfully updated in your PowerShell profile!"
+        InstallRegistered    = "[$ToolName] Global command successfully registered in your PowerShell profile!"
+        ProfileFile          = "Profile file: {0}"
+        InstallSuccessDesc   = "You can now run 'fireflow' from any Firebase project directory."
+        InstallReload        = "To use it immediately, reload your profile or open a new terminal:"
+        FailPrefix           = "[$ToolName ERROR]: {0}"
+        ErrPreviewPromote    = "The -Preview (-P) and -Promote (-PR) switches cannot be used together!"
+        ErrNotGitRepo        = "This directory is not a Git repository."
+        ErrFirebaseJson      = "firebase.json was not found in the project root."
+        ErrGitNotFound       = "The 'git' command was not found."
+        ErrFirebaseNotFound  = "The Firebase CLI ('firebase') was not found."
+        ErrInvalidBaseVer    = "Invalid base version format: {0}"
+        ErrNoModifiedFiles   = "No modified files in working directory. Deploy aborted. (Help: fireflow -h)"
+        ErrPromoteDirty      = "The 'promote' (-PR) mode requires a clean working directory. Commit or stash your changes first!"
+        PromptCommitMsg      = "Enter commit message"
+        ErrEmptyCommitMsg    = "Commit message cannot be empty!"
+        PlanTitle            = "RELEASE PLAN ({0})"
+        PlanProjectRoot      = "Project root:      {0}"
+        PlanCurrentBranch    = "Current branch:    {0}"
+        PlanTargetBranch     = "Target branch:     {0} (Auto switch/create)"
+        PlanMergeBranch      = "Merging branch:    {0} -> {1}"
+        PlanBaseVer          = "Base version:      {0}"
+        PlanNewVer           = "New version (Tag): {0} ({1})"
+        PlanFirebaseTargets  = "Firebase targets:  {0}"
+        PlanPreviewChannel   = "Preview channel:   {0}"
+        PlanCommitMsg        = "Commit message:    {0}"
+        PlanHtmlFiles        = "HTML files to version (__VERSION__ -> {0}):"
+        PlanNoPlaceholder    = "WARNING: No '__VERSION__' placeholder found in any HTML file!"
+        PlanModifiedFiles    = "Modified / Staged files (verify no unwanted files are included):"
+        PromptConfirm        = "Proceed with these settings? [Y/N]"
+        UserCancelled        = "Operation cancelled by user."
+        SwitchingPreview     = "`nSwitching to preview branch: {0}..."
+        ErrSwitchBranch      = "Failed to switch to branch '{0}'."
+        SwitchingPromote     = "`nSwitching to main branch ({0}) and merging '{1}'..."
+        ErrMergeFailed       = "Git merge failed due to conflicts or errors. Resolve conflicts and retry!"
+        DeployStart          = "`nStarting Firebase deploy..."
+        DeployBackend        = "Updating backend services (--only {0})..."
+        ErrBackendDeploy     = "Deployment of backend services failed!"
+        DeployHosting        = "Deploying hosting to preview channel '{0}'..."
+        ErrPreviewDeploy     = "Firebase preview channel deploy failed!"
+        ErrLiveDeploy        = "Firebase live deploy failed!"
+        RestoringHtml        = "`nRestoring source HTML files (__VERSION__ placeholder)..."
+        GitOpsStart          = "`nExecuting Git version control operations..."
+        ErrGitAdd            = "'git add -A' command failed."
+        ErrGitCommit         = "Git commit failed."
+        ErrGitTag            = "Failed to create Git tag ({0})."
+        PushingRemote        = "Pushing to remote repository (origin/{0} + {1})..."
+        ErrPushBranch        = "Git branch push failed."
+        ErrPushTag           = "Git tag push failed."
+        SuccessTitle         = "RELEASE SUCCESSFUL!"
+        SuccessMode          = "Mode:          {0}"
+        SuccessBranch        = "Active branch: {0}"
+        SuccessTag           = "Released tag:  {0}"
+        SuccessSynced        = "All changes deployed and synchronized with GitHub!"
+    }
+}[$ActiveLang]
+
 function Show-Help {
-    Write-Host ""
-    Write-Host "=====================================================================" -ForegroundColor DarkCyan
-    Write-Host "  $ToolName CLI ($ToolVersion) - Univerzális Firebase & Git Kiadáskezelő" -ForegroundColor Cyan
-    Write-Host "=====================================================================" -ForegroundColor DarkCyan
-    Write-Host ""
-    Write-Host "HASZNÁLAT:" -ForegroundColor Yellow
-    Write-Host "  fireflow [CommitMessage] [ReleaseType] [Kapcsolók...]"
-    Write-Host "  (Vagy: .\fireflow.ps1 [CommitMessage] [ReleaseType] [Kapcsolók...])"
-    Write-Host ""
-    Write-Host "GYORS MÓDVÁLASZTÓ KAPCSOLÓK:" -ForegroundColor Yellow
-    Write-Host "  (alapértelmezett)       Éles (live) kiadás a főágon"
-    Write-Host "  -P,  -Preview           Teszt kiadás Firebase Preview csatornára és külön Git ágra"
-    Write-Host "  -PR, -Promote           Preview ág beolvasztása (merge) a főágba és éles kiadás"
-    Write-Host ""
-    Write-Host "PARAMÉTEREK ÉS RÖVIDÍTÉSEK:" -ForegroundColor Yellow
-    Write-Host "  -CM     <szöveg>        Commit üzenet (1. pozicionális paraméter, elhagyható a -CM)"
-    Write-Host "  -R      <típus>         Verzióléptetés: patch (alap), minor, major (2. pozicionális)"
-    Write-Host "  -M      <mód>           Működési mód explicit megadása: live, preview, promote"
-    Write-Host "  -C      <csatorna>      Preview csatorna és Git ág neve (alapértelmezett: 'preview')"
-    Write-Host "  -T      <target>        Firebase Hosting target neve (multi-site projektekhez)"
-    Write-Host "  -O      <komponensek>   Deploy szűrése (alap: 'hosting', pl. 'firestore:rules,functions')"
-    Write-Host "  -B      <ág>            Fő Git ág neve (alapértelmezett: 'main', vagy 'master')"
-    Write-Host "  -S,  -SkipHostingSync   HTML verziószinkron (automatikus hosting deploy) kihagyása"
-    Write-Host "  -Y,  -Yes               Interaktív [I/N] jóváhagyás átugrása (azonnali futtatás)"
-    Write-Host "  -I,  -Install           Globális parancs ('fireflow') regisztrálása a PowerShell profilban"
-    Write-Host "  -V,  -Version           Kiírja a $ToolName aktuális verziószámát"
-    Write-Host "  -H,  -Help, -?          Megjeleníti ezt a súgót"
-    Write-Host ""
-    Write-Host "GLOBÁLIS HASZNÁLAT:" -ForegroundColor Yellow
-    Write-Host "  A 'fireflow -Install' futtatása után a parancs bármely projekt könyvtárából elérhető."
-    Write-Host ""
-    Write-Host "GYAKORLATI PÉLDÁK (PUSKÁZÓ):" -ForegroundColor Yellow
-    Write-Host "  1. Gyors éles (patch) kiadás:" -ForegroundColor Cyan
-    Write-Host "     .\fireflow.ps1 `"Hibajavítás a főoldalon`""
-    Write-Host ""
-    Write-Host "  2. Éles (minor) kiadás egy adott hosting targetre:" -ForegroundColor Cyan
-    Write-Host "     .\fireflow.ps1 `"Új modul`" minor -T app"
-    Write-Host ""
-    Write-Host "  3. Csak Firestore szabályok frissítése (HTML verziószinkronnal együtt):" -ForegroundColor Cyan
-    Write-Host "     .\fireflow.ps1 `"Szabályok szigorítása`" -O firestore:rules"
-    Write-Host ""
-    Write-Host "  4. Fejlesztés küldése Preview csatornára (és 'preview/teszt' Git ágra):" -ForegroundColor Cyan
-    Write-Host "     .\fireflow.ps1 `"Új naptár teszt`" -P -C teszt -T app"
-    Write-Host ""
-    Write-Host "  5. Letesztelt Preview ág beolvasztása (merge) és élesítése:" -ForegroundColor Cyan
-    Write-Host "     .\fireflow.ps1 -PR -C teszt -T app"
-    Write-Host ""
+    if ($ActiveLang -eq "hu") {
+        Write-Host ""
+        Write-Host "=====================================================================" -ForegroundColor DarkCyan
+        Write-Host "  $ToolName CLI ($ToolVersion) - Univerzális Firebase & Git Kiadáskezelő" -ForegroundColor Cyan
+        Write-Host "=====================================================================" -ForegroundColor DarkCyan
+        Write-Host ""
+        Write-Host "HASZNÁLAT:" -ForegroundColor Yellow
+        Write-Host "  fireflow [CommitMessage] [ReleaseType] [Kapcsolók...]"
+        Write-Host "  (Vagy: .\fireflow.ps1 [CommitMessage] [ReleaseType] [Kapcsolók...])"
+        Write-Host ""
+        Write-Host "GYORS MÓDVÁLASZTÓ KAPCSOLÓK:" -ForegroundColor Yellow
+        Write-Host "  (alapértelmezett)       Éles (live) kiadás a főágon"
+        Write-Host "  -P,  -Preview           Teszt kiadás Firebase Preview csatornára és külön Git ágra"
+        Write-Host "  -PR, -Promote           Preview ág beolvasztása (merge) a főágba és éles kiadás"
+        Write-Host ""
+        Write-Host "PARAMÉTEREK ÉS RÖVIDÍTÉSEK:" -ForegroundColor Yellow
+        Write-Host "  -CM     <szöveg>        Commit üzenet (1. pozicionális paraméter, elhagyható a -CM)"
+        Write-Host "  -R      <típus>         Verzióléptetés: patch (alap), minor, major (2. pozicionális)"
+        Write-Host "  -M      <mód>           Működési mód explicit megadása: live, preview, promote"
+        Write-Host "  -C      <csatorna>      Preview csatorna és Git ág neve (alapértelmezett: 'preview')"
+        Write-Host "  -T      <target>        Firebase Hosting target neve (multi-site projektekhez)"
+        Write-Host "  -O      <komponensek>   Deploy szűrése (alap: 'hosting', pl. 'firestore:rules,functions')"
+        Write-Host "  -B      <ág>            Fő Git ág neve (alapértelmezett: 'main', vagy 'master')"
+        Write-Host "  -S,  -SkipHostingSync   HTML verziószinkron (automatikus hosting deploy) kihagyása"
+        Write-Host "  -Y,  -Yes               Interaktív [I/N] jóváhagyás átugrása (azonnali futtatás)"
+        Write-Host "  -I,  -Install           Globális parancs ('fireflow') regisztrálása a PowerShell profilban"
+        Write-Host "  -L,  -Lang <hu|en|auto> Megjelenítési nyelv kiválasztása (alapértelmezett: 'auto')"
+        Write-Host "  -V,  -Version           Kiírja a $ToolName aktuális verziószámát"
+        Write-Host "  -H,  -Help, -?          Megjeleníti ezt a súgót"
+        Write-Host ""
+        Write-Host "GLOBÁLIS HASZNÁLAT:" -ForegroundColor Yellow
+        Write-Host "  A 'fireflow -Install' futtatása után a parancs bármely projekt könyvtárából elérhető."
+        Write-Host ""
+        Write-Host "GYAKORLATI PÉLDÁK (PUSKÁZÓ):" -ForegroundColor Yellow
+        Write-Host "  1. Gyors éles (patch) kiadás:" -ForegroundColor Cyan
+        Write-Host "     fireflow `"Hibajavítás a főoldalon`""
+        Write-Host ""
+        Write-Host "  2. Éles (minor) kiadás egy adott hosting targetre:" -ForegroundColor Cyan
+        Write-Host "     fireflow `"Új modul`" minor -T app"
+        Write-Host ""
+        Write-Host "  3. Csak Firestore szabályok frissítése (HTML verziószinkronnal együtt):" -ForegroundColor Cyan
+        Write-Host "     fireflow `"Szabályok szigorítása`" -O firestore:rules"
+        Write-Host ""
+        Write-Host "  4. Fejlesztés küldése Preview csatornára (és 'preview/teszt' Git ágra):" -ForegroundColor Cyan
+        Write-Host "     fireflow `"Új naptár teszt`" -P -C teszt -T app"
+        Write-Host ""
+        Write-Host "  5. Letesztelt Preview ág beolvasztása (merge) és élesítése:" -ForegroundColor Cyan
+        Write-Host "     fireflow -PR -C teszt -T app"
+        Write-Host ""
+    } else {
+        Write-Host ""
+        Write-Host "=====================================================================" -ForegroundColor DarkCyan
+        Write-Host "  $ToolName CLI ($ToolVersion) - Universal Firebase & Git Release Manager" -ForegroundColor Cyan
+        Write-Host "=====================================================================" -ForegroundColor DarkCyan
+        Write-Host ""
+        Write-Host "USAGE:" -ForegroundColor Yellow
+        Write-Host "  fireflow [CommitMessage] [ReleaseType] [Switches...]"
+        Write-Host "  (Or: .\fireflow.ps1 [CommitMessage] [ReleaseType] [Switches...])"
+        Write-Host ""
+        Write-Host "QUICK MODE SWITCHES:" -ForegroundColor Yellow
+        Write-Host "  (default)               Production (live) release on the main branch"
+        Write-Host "  -P,  -Preview           Test release to Firebase Preview Channel and dedicated Git branch"
+        Write-Host "  -PR, -Promote           Merge preview branch into main and release to production"
+        Write-Host ""
+        Write-Host "PARAMETERS & SHORTCUTS:" -ForegroundColor Yellow
+        Write-Host "  -CM     <text>          Commit message (1st positional parameter, -CM can be omitted)"
+        Write-Host "  -R      <type>          Version increment: patch (default), minor, major (2nd positional)"
+        Write-Host "  -M      <mode>          Explicit mode specification: live, preview, promote"
+        Write-Host "  -C      <channel>       Preview channel and Git branch name (default: 'preview')"
+        Write-Host "  -T      <target>        Firebase Hosting target name (for multi-site projects)"
+        Write-Host "  -O      <components>    Deploy target filter (default: 'hosting', e.g. 'firestore:rules,functions')"
+        Write-Host "  -B      <branch>        Main Git branch name (default: 'main' or 'master')"
+        Write-Host "  -S,  -SkipHostingSync   Skip HTML version sync (automatic hosting deploy)"
+        Write-Host "  -Y,  -Yes               Skip interactive confirmation [Y/N] (non-interactive run)"
+        Write-Host "  -I,  -Install           Register global 'fireflow' command in PowerShell profile"
+        Write-Host "  -L,  -Lang <hu|en|auto> Display language selection (default: 'auto')"
+        Write-Host "  -V,  -Version           Print current $ToolName version"
+        Write-Host "  -H,  -Help, -?          Display this help message"
+        Write-Host ""
+        Write-Host "GLOBAL USAGE:" -ForegroundColor Yellow
+        Write-Host "  After running 'fireflow -Install', the command is available from any project folder."
+        Write-Host ""
+        Write-Host "PRACTICAL EXAMPLES (CHEAT SHEET):" -ForegroundColor Yellow
+        Write-Host "  1. Quick production (patch) release:" -ForegroundColor Cyan
+        Write-Host "     fireflow `"Bugfix on main page`""
+        Write-Host ""
+        Write-Host "  2. Production (minor) release to a specific hosting target:" -ForegroundColor Cyan
+        Write-Host "     fireflow `"New feature module`" minor -T app"
+        Write-Host ""
+        Write-Host "  3. Update Firestore rules only (with HTML version sync):" -ForegroundColor Cyan
+        Write-Host "     fireflow `"Strict security rules`" -O firestore:rules"
+        Write-Host ""
+        Write-Host "  4. Push changes to Preview Channel (and 'preview/test' Git branch):" -ForegroundColor Cyan
+        Write-Host "     fireflow `"New calendar test`" -P -C test -T app"
+        Write-Host ""
+        Write-Host "  5. Merge tested preview branch (promote) and deploy live:" -ForegroundColor Cyan
+        Write-Host "     fireflow -PR -C test -T app"
+        Write-Host ""
+    }
 }
 
 if ($Help) {
@@ -151,7 +341,7 @@ if ($Help) {
 }
 
 if ($Version) {
-    Write-Host "$ToolName CLI - Verzió: $ToolVersion" -ForegroundColor Cyan
+    Write-Host $Msg.VersionOutput -ForegroundColor Cyan
     exit 0
 }
 
@@ -186,16 +376,16 @@ if ($Install) {
         $NewProfileContent = $CleanedContent + "`r`n`r`n# FireFlow CLI Global Function`r`nfunction fireflow { & `"$ScriptFullPath`" @args }`r`n"
         Set-Content -Path $ProfilePath -Value $NewProfileContent -Encoding UTF8
         Write-Host ""
-        Write-Host "[FireFlow] A globális parancs sikeresen frissítve a PowerShell profilodban!" -ForegroundColor Green
+        Write-Host $Msg.InstallUpdated -ForegroundColor Green
     } else {
         Add-Content -Path $ProfilePath -Value $FunctionDef -Encoding UTF8
         Write-Host ""
-        Write-Host "[FireFlow] A globális parancs sikeresen regisztrálva a PowerShell profilodban!" -ForegroundColor Green
+        Write-Host $Msg.InstallRegistered -ForegroundColor Green
     }
 
-    Write-Host "Profil fájl: $ProfilePath" -ForegroundColor DarkCyan
-    Write-Host "Mostantól bármely Firebase projekt könyvtárából futtatható a 'fireflow' parancs." -ForegroundColor Green
-    Write-Host "Azonnali használathoz töltsd újra a profilodat vagy nyiss új terminált:" -ForegroundColor Yellow
+    Write-Host ($Msg.ProfileFile -f $ProfilePath) -ForegroundColor DarkCyan
+    Write-Host $Msg.InstallSuccessDesc -ForegroundColor Green
+    Write-Host $Msg.InstallReload -ForegroundColor Yellow
     Write-Host "  . `$PROFILE" -ForegroundColor Cyan
     Write-Host ""
     exit 0
@@ -203,7 +393,7 @@ if ($Install) {
 
 function Fail($Message) {
     Write-Host ""
-    Write-Host "[$ToolName HIBA]: $Message" -ForegroundColor Red
+    Write-Host ($Msg.FailPrefix -f $Message) -ForegroundColor Red
     exit 1
 }
 
@@ -216,7 +406,7 @@ function Write-Header($Title) {
 
 # Gyorskapcsolók (-P és -PR) feloldása és ütközésellenőrzése
 if ($Preview -and $Promote) {
-    Fail "A -Preview (-P) és -Promote (-PR) kapcsolók nem használhatók egyszerre!"
+    Fail $Msg.ErrPreviewPromote
 }
 if ($Preview) { $Mode = "preview" }
 if ($Promote) { $Mode = "promote" }
@@ -224,13 +414,13 @@ if ($Promote) { $Mode = "promote" }
 # 1. Alapvető környezet ellenőrzése
 $ProjectRoot = (Get-Location).Path
 
-if (-not (Test-Path ".\.git")) { Fail "Ez a mappa nem egy Git repository." }
-if (-not (Test-Path ".\firebase.json")) { Fail "A firebase.json nem található a projekt gyökerében." }
+if (-not (Test-Path ".\.git")) { Fail $Msg.ErrNotGitRepo }
+if (-not (Test-Path ".\firebase.json")) { Fail $Msg.ErrFirebaseJson }
 
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fail "A 'git' parancs nem található." }
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fail $Msg.ErrGitNotFound }
 $FirebaseCmd = if (Get-Command firebase -ErrorAction SilentlyContinue) { "firebase" } 
                elseif (Get-Command firebase.cmd -ErrorAction SilentlyContinue) { "firebase.cmd" } 
-               else { Fail "A Firebase CLI ('firebase') nem található." }
+               else { Fail $Msg.ErrFirebaseNotFound }
 
 # 2. Aktuális Git ág és státusz lekérdezése
 $CurrentBranch = (git rev-parse --abbrev-ref HEAD).Trim()
@@ -247,7 +437,7 @@ $stableTags = @(git tag --list "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | Where
 $baseVersion = if ($stableTags.Count -gt 0) { $stableTags[0] } else { "v0.1.0" }
 
 if ($baseVersion -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
-    Fail "Érvénytelen alapverzió formátum: $baseVersion"
+    Fail ($Msg.ErrInvalidBaseVer -f $baseVersion)
 }
 
 $major = [int]$Matches[1]
@@ -347,56 +537,56 @@ $FinalOnlyParam = $DeployOnlyList -join ","
 
 # 6. Állapotellenőrzés és Commit üzenet bekérése
 if ($Mode -ne "promote" -and $GitStatus.Count -eq 0) {
-    Fail "Nincs módosított fájl a munkakönyvtárban. A deploy leállt. (Súgó: .\fireflow.ps1 -h)"
+    Fail $Msg.ErrNoModifiedFiles
 }
 
 if ($Mode -eq "promote" -and $GitStatus.Count -gt 0) {
-    Fail "A 'promote' (-PR) mód tiszta munkakönyvtárat igényel. Előbb commitold vagy stasheld a változásokat!"
+    Fail $Msg.ErrPromoteDirty
 }
 
 if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
     if ($Mode -eq "promote") {
         $CommitMessage = "Release $NewVersion (Promoted from $SourceBranch)"
     } else {
-        $CommitMessage = Read-Host "Add meg a commit üzenetet"
+        $CommitMessage = Read-Host $Msg.PromptCommitMsg
     }
 }
 if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
-    Fail "A commit üzenet nem lehet üres!"
+    Fail $Msg.ErrEmptyCommitMsg
 }
 
 # 7. Összegzés és Felhasználói Jóváhagyás (Interaktív Fék)
-Write-Header "KIADÁSI TERV ($($Mode.ToUpper()))"
-Write-Host "Projekt gyökér:    $ProjectRoot"
-Write-Host "Jelenlegi Git ág:  $CurrentBranch"
+Write-Header ($Msg.PlanTitle -f $Mode.ToUpper())
+Write-Host ($Msg.PlanProjectRoot -f $ProjectRoot)
+Write-Host ($Msg.PlanCurrentBranch -f $CurrentBranch)
 if ($TargetBranch -ne $CurrentBranch) {
-    Write-Host "Cél Git ág:        $TargetBranch (Automatikus váltás/létrehozás)" -ForegroundColor Yellow
+    Write-Host ($Msg.PlanTargetBranch -f $TargetBranch) -ForegroundColor Yellow
 }
 if ($Mode -eq "promote") {
-    Write-Host "Beolvasztandó ág:  $SourceBranch -> $MainBranch" -ForegroundColor Magenta
+    Write-Host ($Msg.PlanMergeBranch -f $SourceBranch, $MainBranch) -ForegroundColor Magenta
 }
-Write-Host "Bázis verzió:      $baseVersion"
-Write-Host "Új verzió (Tag):   $NewVersion ($ReleaseType)" -ForegroundColor Green
-Write-Host "Firebase célok:    $FinalOnlyParam"
+Write-Host ($Msg.PlanBaseVer -f $baseVersion)
+Write-Host ($Msg.PlanNewVer -f $NewVersion, $ReleaseType) -ForegroundColor Green
+Write-Host ($Msg.PlanFirebaseTargets -f $FinalOnlyParam)
 if ($Mode -eq "preview") {
-    Write-Host "Preview csatorna:  $Channel" -ForegroundColor Cyan
+    Write-Host ($Msg.PlanPreviewChannel -f $Channel) -ForegroundColor Cyan
 }
-Write-Host "Commit üzenet:     $CommitMessage"
+Write-Host ($Msg.PlanCommitMsg -f $CommitMessage)
 Write-Host ""
 
 if ($VersionFiles.Count -gt 0) {
-    Write-Host "Verziózandó HTML fájlok (__VERSION__ -> $NewVersion):" -ForegroundColor Cyan
+    Write-Host ($Msg.PlanHtmlFiles -f $NewVersion) -ForegroundColor Cyan
     foreach ($vf in $VersionFiles) {
         $rel = $vf.Substring($ProjectRoot.Length + 1)
         Write-Host "  [HTML] $rel"
     }
 } else {
-    Write-Host "FIGYELEM: Nem található '__VERSION__' placeholder egyetlen HTML fájlban sem!" -ForegroundColor Yellow
+    Write-Host $Msg.PlanNoPlaceholder -ForegroundColor Yellow
 }
 
 if ($GitStatus.Count -gt 0) {
     Write-Host ""
-    Write-Host "Módosított / Commitra váró fájlok (ellenőrizd, nincs-e köztük szemét!):" -ForegroundColor Yellow
+    Write-Host $Msg.PlanModifiedFiles -ForegroundColor Yellow
     foreach ($line in $GitStatus) {
         Write-Host "  $line"
     }
@@ -404,9 +594,9 @@ if ($GitStatus.Count -gt 0) {
 
 Write-Host ""
 if (-not $Yes) {
-    $confirm = Read-Host "Elindítod a folyamatot ezekkel a beállításokkal? [I/N]"
+    $confirm = Read-Host $Msg.PromptConfirm
     if ($confirm -notmatch '^[iIyY]$') {
-        Write-Host "Folyamat megszakítva a felhasználó által." -ForegroundColor Yellow
+        Write-Host $Msg.UserCancelled -ForegroundColor Yellow
         exit 0
     }
 }
@@ -417,24 +607,24 @@ if (-not $Yes) {
 
 # Branch váltás vagy Merge kezelése
 if ($Mode -eq "preview" -and $CurrentBranch -ne $TargetBranch) {
-    Write-Host "`nÁtváltás a preview ágra: $TargetBranch..." -ForegroundColor Cyan
+    Write-Host ($Msg.SwitchingPreview -f $TargetBranch) -ForegroundColor Cyan
     $branchExists = @(git branch --list $TargetBranch)
     if ($branchExists.Count -gt 0) {
         git checkout $TargetBranch
     } else {
         git checkout -b $TargetBranch
     }
-    if ($LASTEXITCODE -ne 0) { Fail "Nem sikerült átváltani a(z) $TargetBranch ágra." }
+    if ($LASTEXITCODE -ne 0) { Fail ($Msg.ErrSwitchBranch -f $TargetBranch) }
 }
 elseif ($Mode -eq "promote") {
-    Write-Host "`nÁtváltás a főágra ($MainBranch) és '$SourceBranch' beolvasztása..." -ForegroundColor Cyan
+    Write-Host ($Msg.SwitchingPromote -f $MainBranch, $SourceBranch) -ForegroundColor Cyan
     if ($CurrentBranch -ne $MainBranch) {
         git checkout $MainBranch
-        if ($LASTEXITCODE -ne 0) { Fail "Nem sikerült átváltani a(z) $MainBranch ágra." }
+        if ($LASTEXITCODE -ne 0) { Fail ($Msg.ErrSwitchBranch -f $MainBranch) }
     }
     git pull origin $MainBranch
     git merge $SourceBranch --no-ff -m $CommitMessage
-    if ($LASTEXITCODE -ne 0) { Fail "A Git merge ütközés vagy hiba miatt sikertelen. Oldd fel a konfliktusokat!" }
+    if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrMergeFailed }
 }
 
 # Eredeti HTML tartalmak mentése a memóriába
@@ -448,40 +638,40 @@ try {
     }
 
     # FIREBASE DEPLOY FUTTATÁSA
-    Write-Host "`nFirebase deploy indítása..." -ForegroundColor Cyan
+    Write-Host $Msg.DeployStart -ForegroundColor Cyan
     
     if ($Mode -eq "preview") {
         # 1. Nem-hosting komponensek deployolása (ha van ilyen megadva)
         $nonHostingTargets = @($DeployOnlyList | Where-Object { $_ -ne "hosting" -and -not $_.StartsWith("hosting:") })
         if ($nonHostingTargets.Count -gt 0) {
             $nhParam = $nonHostingTargets -join ","
-            Write-Host "Háttérszolgáltatások frissítése (--only $nhParam)..." -ForegroundColor DarkCyan
+            Write-Host ($Msg.DeployBackend -f $nhParam) -ForegroundColor DarkCyan
             & $FirebaseCmd deploy --only $nhParam
-            if ($LASTEXITCODE -ne 0) { Fail "A háttérszolgáltatások deploy-a sikertelen!" }
+            if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrBackendDeploy }
         }
 
         # 2. Hosting deploy a Preview Channelre
         $hasHostingTarget = @($DeployOnlyList | Where-Object { $_ -eq "hosting" -or $_.StartsWith("hosting:") }).Count -gt 0
         if ($hasHostingTarget) {
-            Write-Host "Hosting feltöltése a(z) '$Channel' preview csatornára..." -ForegroundColor DarkCyan
+            Write-Host ($Msg.DeployHosting -f $Channel) -ForegroundColor DarkCyan
             if ([string]::IsNullOrWhiteSpace($Target)) {
                 & $FirebaseCmd hosting:channel:deploy $Channel
             } else {
                 & $FirebaseCmd hosting:channel:deploy $Channel --only $Target
             }
-            if ($LASTEXITCODE -ne 0) { Fail "A Firebase preview channel deploy sikertelen!" }
+            if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrPreviewDeploy }
         }
     }
     else {
         # LIVE és PROMOTE mód: teljes éles deploy
         & $FirebaseCmd deploy --only $FinalOnlyParam
-        if ($LASTEXITCODE -ne 0) { Fail "A Firebase éles deploy sikertelen!" }
+        if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrLiveDeploy }
     }
 }
 finally {
     # GARANTÁLT VISSZAÁLLÍTÁS: A __VERSION__ placeholder visszaírása a forrásfájlokba
     if ($BackupHtmlContent.Count -gt 0) {
-        Write-Host "`nForrás HTML fájlok (__VERSION__ placeholder) visszaállítása..." -ForegroundColor DarkGray
+        Write-Host $Msg.RestoringHtml -ForegroundColor DarkGray
         foreach ($vf in $BackupHtmlContent.Keys) {
             Set-Content -Path $vf -Value $BackupHtmlContent[$vf] -Encoding UTF8 -NoNewline
         }
@@ -491,31 +681,31 @@ finally {
 # =====================================================================
 # 9. GIT COMMIT, TAG ÉS PUSH (Csak sikeres deploy után!)
 # =====================================================================
-Write-Host "`nGit verziókezelési műveletek végrehajtása..." -ForegroundColor Cyan
+Write-Host $Msg.GitOpsStart -ForegroundColor Cyan
 
 if ($Mode -ne "promote") {
     git add -A
-    if ($LASTEXITCODE -ne 0) { Fail "A 'git add -A' művelet sikertelen." }
+    if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrGitAdd }
 
     git commit -m $CommitMessage
-    if ($LASTEXITCODE -ne 0) { Fail "A Git commit sikertelen." }
+    if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrGitCommit }
 }
 
 git tag -a $NewVersion -m $CommitMessage
-if ($LASTEXITCODE -ne 0) { Fail "A Git tag ($NewVersion) létrehozása sikertelen." }
+if ($LASTEXITCODE -ne 0) { Fail ($Msg.ErrGitTag -f $NewVersion) }
 
 $ActiveBranch = (git rev-parse --abbrev-ref HEAD).Trim()
 
-Write-Host "Feltöltés a távoli repository-ba (origin/$ActiveBranch + $NewVersion)..." -ForegroundColor Cyan
+Write-Host ($Msg.PushingRemote -f $ActiveBranch, $NewVersion) -ForegroundColor Cyan
 git push -u origin $ActiveBranch
-if ($LASTEXITCODE -ne 0) { Fail "A Git branch push sikertelen." }
+if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrPushBranch }
 
 git push origin $NewVersion
-if ($LASTEXITCODE -ne 0) { Fail "A Git tag push sikertelen." }
+if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrPushTag }
 
-Write-Header "SIKERES FOLYAMAT!"
-Write-Host "Mód:          $($Mode.ToUpper())" -ForegroundColor Green
-Write-Host "Aktív ág:     $ActiveBranch" -ForegroundColor Green
-Write-Host "Kiadott tag:  $NewVersion" -ForegroundColor Green
-Write-Host "Minden változás élesítve és szinkronizálva a GitHub-on!" -ForegroundColor Green
+Write-Header $Msg.SuccessTitle
+Write-Host ($Msg.SuccessMode -f $Mode.ToUpper()) -ForegroundColor Green
+Write-Host ($Msg.SuccessBranch -f $ActiveBranch) -ForegroundColor Green
+Write-Host ($Msg.SuccessTag -f $NewVersion) -ForegroundColor Green
+Write-Host $Msg.SuccessSynced -ForegroundColor Green
 Write-Host ""
