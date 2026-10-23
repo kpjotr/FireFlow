@@ -1,6 +1,6 @@
 # FireFlow CLI
 
-**Verzió:** `v1.0.0`  
+**Verzió:** `v1.1.0`  
 **Kiadás dátuma:** 2026. október 23.  
 **Típus:** Univerzális Firebase Deploy, Git Branch és Verziókezelő Eszköz (PowerShell)  
 **Licenc:** GNU GPLv3
@@ -27,7 +27,13 @@ Célja, hogy egyetlen rövid paranccsal összehangolja a **Firebase Hosting, Clo
 ## Előfeltételek és Beállítás
 
 1. **Környezet:** Windows PowerShell 5.1+ vagy PowerShell Core (pwsh), telepített és bejelentkezett `git` és `firebase-tools` (Firebase CLI).
-2. **Elhelyezés:** Másold a `fireflow.ps1` fájlt a Firebase projekted gyökérkönyvtárába (ahol a `firebase.json` és a `.git` mappa található).
+2. **Globális telepítés (Ajánlott):** Klónozd ezt a tárolót egy tetszőleges mappába, majd futtasd az egyszeri globális telepítést:
+   ```powershell
+   .\fireflow.ps1 -Install
+   ```
+   *(vagy röviden: `.\fireflow.ps1 -I`)*  
+   Ez automatikusan regisztrálja a `fireflow` függvényt a PowerShell `$PROFILE`-odban. A terminál újranyitása (vagy `. $PROFILE` futtatása) után a scriptet **nem szükséges külön bemásolni az egyes projektekbe** – közvetlenül a `fireflow` paranccsal futtatható bármely Firebase projekt könyvtárából.  
+   *(Alternatívaként a `fireflow.ps1` fájl továbbra is közvetlenül bemásolható egy projekt gyökerébe, és helyileg futtatható a `.\fireflow.ps1` paranccsal.)*
 3. **HTML Előkészítés:** A megjeleníteni kívánt `.html` fájlokban (pl. `index.html`) helyezd el a `__VERSION__` szöveget (például a láblécben: `<span>Verzió: __VERSION__</span>`).
 4. **Gitignore:** Gondoskodj róla, hogy a projekted `.gitignore` fájlja megfelelően szűrje a nem kívánt fájlokat (`node_modules/`, `.firebase/`, stb.), mert a script a jóváhagyásod után minden módosítást (`git add -A`) verziózni fog.
 
@@ -50,6 +56,7 @@ A PowerShellben a kapcsolók nem kis- és nagybetű érzékenyek (`-CM` = `-cm`,
 | **`-B`** | `-MainBranch` | `main` | A projekt fő Git ága (automatikusan felismeri a `master`-t is). |
 | **`-S`** | `-SkipHostingSync`| `false` | Kikapcsolja a HTML verziószám (és a hosting) automatikus kényszerített frissítését. |
 | **`-Y`** | `-Yes` | `false` | Átugorja az interaktív `[I/N]` megerősítést (automatizált futtatáshoz). |
+| **`-I`** | `-Install` | `false` | **Globális telepítés:** Regisztrálja a `fireflow` parancsot a PowerShell `$PROFILE`-ban. |
 | **`-V`** | `-Version` | `false` | Kiírja a FireFlow CLI eszköz saját verziószámát, majd kilép. |
 | **`-H`**, **`-?`** | `-Help` | `false` | Megjeleníti a részletes parancssori súgót és puskázót, majd kilép. |
 
@@ -79,10 +86,16 @@ Amikor a preview csatornán minden teszt sikeres volt, ez a mód véglegesíti a
 
 ## Gyakorlati Puskázó (Cheat Sheet)
 
-### Súgó és verzió lekérdezése
+### Egyszeri globális telepítés
 ```powershell
-.\fireflow.ps1 -h
-.\fireflow.ps1 -v
+.\fireflow.ps1 -Install
+```
+
+### Súgó és verzió lekérdezése
+*(Globális telepítés után a `fireflow`, helyi másolat esetén a `.\fireflow.ps1` használható)*
+```powershell
+fireflow -h
+fireflow -v
 ```
 
 ### 1. Gyors éles (patch) kiadás

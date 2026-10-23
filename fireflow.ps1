@@ -69,6 +69,10 @@ param(
     [switch]$Yes,
 
     [Parameter()]
+    [Alias("I")]
+    [switch]$Install,
+
+    [Parameter()]
     [Alias("V")]
     [switch]$Version,
 
@@ -81,7 +85,7 @@ param(
 # ESZKÖZ ÖNVERZIÓZÁSA (Antigravity frissíti a saját repó alapján)
 # =====================================================================
 $ToolName = "FireFlow"
-$ToolVersion = "v1.0.0"
+$ToolVersion = "v1.1.0"
 
 $ErrorActionPreference = "Stop"
 
@@ -98,7 +102,8 @@ function Show-Help {
     Write-Host "=====================================================================" -ForegroundColor DarkCyan
     Write-Host ""
     Write-Host "HASZNÁLAT:" -ForegroundColor Yellow
-    Write-Host "  .\fireflow.ps1 [CommitMessage] [ReleaseType] [Kapcsolók...]"
+    Write-Host "  fireflow [CommitMessage] [ReleaseType] [Kapcsolók...]"
+    Write-Host "  (Vagy: .\fireflow.ps1 [CommitMessage] [ReleaseType] [Kapcsolók...])"
     Write-Host ""
     Write-Host "GYORS MÓDVÁLASZTÓ KAPCSOLÓK:" -ForegroundColor Yellow
     Write-Host "  (alapértelmezett)       Éles (live) kiadás a főágon"
@@ -115,8 +120,12 @@ function Show-Help {
     Write-Host "  -B      <ág>            Fő Git ág neve (alapértelmezett: 'main', vagy 'master')"
     Write-Host "  -S,  -SkipHostingSync   HTML verziószinkron (automatikus hosting deploy) kihagyása"
     Write-Host "  -Y,  -Yes               Interaktív [I/N] jóváhagyás átugrása (azonnali futtatás)"
+    Write-Host "  -I,  -Install           Globális parancs ('fireflow') regisztrálása a PowerShell profilban"
     Write-Host "  -V,  -Version           Kiírja a $ToolName aktuális verziószámát"
     Write-Host "  -H,  -Help, -?          Megjeleníti ezt a súgót"
+    Write-Host ""
+    Write-Host "GLOBÁLIS HASZNÁLAT:" -ForegroundColor Yellow
+    Write-Host "  A 'fireflow -Install' futtatása után a parancs bármely projekt könyvtárából elérhető."
     Write-Host ""
     Write-Host "GYAKORLATI PÉLDÁK (PUSKÁZÓ):" -ForegroundColor Yellow
     Write-Host "  1. Gyors éles (patch) kiadás:" -ForegroundColor Cyan
@@ -146,6 +155,52 @@ if ($Version) {
     exit 0
 }
 
+if ($Install) {
+    $ScriptFullPath = $PSCommandPath
+    if ([string]::IsNullOrWhiteSpace($ScriptFullPath)) {
+        $ScriptFullPath = $MyInvocation.MyCommand.Path
+    }
+    if ([string]::IsNullOrWhiteSpace($ScriptFullPath)) {
+        $ScriptFullPath = $MyInvocation.MyCommand.Definition
+    }
+
+    $ProfilePath = $PROFILE
+    $ProfileDir = Split-Path -Parent $ProfilePath
+
+    if (-not (Test-Path $ProfileDir)) {
+        New-Item -ItemType Directory -Path $ProfileDir -Force | Out-Null
+    }
+
+    if (-not (Test-Path $ProfilePath)) {
+        New-Item -ItemType File -Path $ProfilePath -Force | Out-Null
+    }
+
+    $ProfileContent = Get-Content -Path $ProfilePath -Raw -ErrorAction SilentlyContinue
+    if ($null -eq $ProfileContent) { $ProfileContent = "" }
+
+    $FunctionDef = "`r`n# FireFlow CLI Global Function`r`nfunction fireflow { & `"$ScriptFullPath`" @args }`r`n"
+
+    if ($ProfileContent -match 'function\s+fireflow\b') {
+        $Pattern = '(?ms)([\r\n]*# FireFlow CLI Global Function[\r\n]*)?function\s+fireflow\s*\{[^}]*\}[\r\n]*'
+        $CleanedContent = [regex]::Replace($ProfileContent, $Pattern, '').TrimEnd()
+        $NewProfileContent = $CleanedContent + "`r`n`r`n# FireFlow CLI Global Function`r`nfunction fireflow { & `"$ScriptFullPath`" @args }`r`n"
+        Set-Content -Path $ProfilePath -Value $NewProfileContent -Encoding UTF8
+        Write-Host ""
+        Write-Host "[FireFlow] A globális parancs sikeresen frissítve a PowerShell profilodban!" -ForegroundColor Green
+    } else {
+        Add-Content -Path $ProfilePath -Value $FunctionDef -Encoding UTF8
+        Write-Host ""
+        Write-Host "[FireFlow] A globális parancs sikeresen regisztrálva a PowerShell profilodban!" -ForegroundColor Green
+    }
+
+    Write-Host "Profil fájl: $ProfilePath" -ForegroundColor DarkCyan
+    Write-Host "Mostantól bármely Firebase projekt könyvtárából futtatható a 'fireflow' parancs." -ForegroundColor Green
+    Write-Host "Azonnali használathoz töltsd újra a profilodat vagy nyiss új terminált:" -ForegroundColor Yellow
+    Write-Host "  . `$PROFILE" -ForegroundColor Cyan
+    Write-Host ""
+    exit 0
+}
+
 function Fail($Message) {
     Write-Host ""
     Write-Host "[$ToolName HIBA]: $Message" -ForegroundColor Red
@@ -167,9 +222,7 @@ if ($Preview) { $Mode = "preview" }
 if ($Promote) { $Mode = "promote" }
 
 # 1. Alapvető környezet ellenőrzése
-$ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { $ProjectRoot = Get-Location }
-Set-Location $ProjectRoot
+$ProjectRoot = (Get-Location).Path
 
 if (-not (Test-Path ".\.git")) { Fail "Ez a mappa nem egy Git repository." }
 if (-not (Test-Path ".\firebase.json")) { Fail "A firebase.json nem található a projekt gyökerében." }
