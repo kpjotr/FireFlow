@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     FireFlow - Universal Firebase Deploy, Git Branch & Version Management CLI Tool / Univerzális Firebase Deploy, Git Branch és Verziókezelő CLI Eszköz
 .DESCRIPTION
@@ -51,6 +51,9 @@ param(
     [switch]$Promote,
 
     [Parameter()]
+    [Alias("CL")][switch]$Cleanup,
+
+    [Parameter()]
     [Alias("T")]
     [string]$Target = "",
 
@@ -71,7 +74,7 @@ param(
     [switch]$SkipHostingSync,
 
     [Parameter()]
-    [Alias("Y")]
+    [Alias("Y", "YesToAll")]
     [switch]$Yes,
 
     [Parameter()]
@@ -96,7 +99,7 @@ param(
 # ESZKÖZ ÖNVERZIÓZÁSA (Antigravity frissíti a saját repó alapján)
 # =====================================================================
 $ToolName = "FireFlow"
-$ToolVersion = "v1.2.2"
+$ToolVersion = "v1.3.0-dev"
 
 $ErrorActionPreference = "Stop"
 
@@ -117,25 +120,26 @@ $ScriptDir = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
 $LangConfigFile = Join-Path $ScriptDir ".fireflow-lang"
 
 # Ha a felhasználó explicit megadta a -Lang paramétert / Handle explicit -Lang
-if ($PSBoundParameters.ContainsKey('Lang') -and -not [string]::IsNullOrWhiteSpace($Lang)) {
-    if ($Lang -eq "auto") {
+$UserLang = $Lang
+if ($PSBoundParameters.ContainsKey('Lang') -and -not [string]::IsNullOrWhiteSpace($UserLang)) {
+    if ($UserLang -eq "auto") {
         if (Test-Path $LangConfigFile) {
             Remove-Item $LangConfigFile -Force -ErrorAction SilentlyContinue
         }
-    } elseif ($Lang -eq "hu" -or $Lang -eq "en") {
-        Set-Content -Path $LangConfigFile -Value $Lang -Encoding UTF8 -NoNewline
+    } elseif ($UserLang -eq "hu" -or $UserLang -eq "en") {
+        Set-Content -Path $LangConfigFile -Value $UserLang -Encoding UTF8 -NoNewline
     }
 }
 
 # Korábban elmentett nyelv beolvasása / Read saved language preference
 $SavedLang = ""
-if ($Lang -ne "auto" -and (Test-Path $LangConfigFile)) {
+if ($UserLang -ne "auto" -and (Test-Path $LangConfigFile)) {
     $SavedLang = (Get-Content $LangConfigFile -Raw -ErrorAction SilentlyContinue).Trim()
 }
 
 # Aktív nyelv meghatározása / Determine active language
-$ActiveLang = if ($Lang -eq "hu" -or $Lang -eq "en") {
-    $Lang
+$ActiveLang = if ($UserLang -eq "hu" -or $UserLang -eq "en") {
+    $UserLang
 } elseif ($SavedLang -eq "hu" -or $SavedLang -eq "en") {
     $SavedLang
 } else {
@@ -145,7 +149,10 @@ $ActiveLang = if ($Lang -eq "hu" -or $Lang -eq "en") {
 # =====================================================================
 # LOKALIZÁCIÓ / LOCALIZATION DICTIONARY
 # =====================================================================
-$Msg = @{
+$LangKey = $ActiveLang
+try { (Get-Variable Lang -Scope Script -ErrorAction SilentlyContinue).Attributes.Clear() } catch {}
+
+$Script:Lang = @{
     hu = @{
         VersionOutput        = "$ToolName CLI - Verzió: $ToolVersion"
         InstallUpdated       = "[$ToolName] A globális parancs sikeresen frissítve a PowerShell profilodban!"
@@ -202,6 +209,10 @@ $Msg = @{
         PushingRemote        = "Feltöltés a távoli repository-ba (origin/{0} + {1})..."
         ErrPushBranch        = "A Git branch push sikertelen."
         ErrPushTag           = "A Git tag push sikertelen."
+        CleanupPrompt        = "Szeretnéd törölni a beolvasztott preview ágat és a Firebase csatornát? (i/n): "
+        DelLocalBranch       = "Helyi Git ág törlése: preview/{0}..."
+        DelRemoteBranch      = "Távoli Git ág törlése: preview/{0}..."
+        DelFbChannel         = "Firebase preview csatorna törlése: {0}..."
         SuccessTitle         = "SIKERES FOLYAMAT!"
         SuccessMode          = "Mód:          {0}"
         SuccessBranch        = "Aktív ág:     {0}"
@@ -264,25 +275,30 @@ $Msg = @{
         PushingRemote        = "Pushing to remote repository (origin/{0} + {1})..."
         ErrPushBranch        = "Git branch push failed."
         ErrPushTag           = "Git tag push failed."
+        CleanupPrompt        = "Do you want to delete the merged preview branch and Firebase channel? (y/n): "
+        DelLocalBranch       = "Deleting local Git branch: preview/{0}..."
+        DelRemoteBranch      = "Deleting remote Git branch: preview/{0}..."
+        DelFbChannel         = "Deleting Firebase preview channel: {0}..."
         SuccessTitle         = "RELEASE SUCCESSFUL!"
         SuccessMode          = "Mode:          {0}"
         SuccessBranch        = "Active branch: {0}"
         SuccessTag           = "Released tag:  {0}"
         SuccessSynced        = "All changes deployed and synchronized with GitHub!"
     }
-}[$ActiveLang]
+}
+$Msg = $Script:Lang[$ActiveLang]
 
 # Önálló nyelvváltás kezelése / Handle standalone -Lang switch
 if ($PSBoundParameters.Count -eq 1 -and $PSBoundParameters.ContainsKey('Lang')) {
-    if ($Lang -eq "auto") {
+    if ($UserLang -eq "auto") {
         Write-Host ""
         Write-Host $Msg.LangSetAuto -ForegroundColor Green
         Write-Host ""
-    } elseif ($Lang -eq "hu") {
+    } elseif ($UserLang -eq "hu") {
         Write-Host ""
         Write-Host $Msg.LangSetHu -ForegroundColor Green
         Write-Host ""
-    } elseif ($Lang -eq "en") {
+    } elseif ($UserLang -eq "en") {
         Write-Host ""
         Write-Host $Msg.LangSetEn -ForegroundColor Green
         Write-Host ""
@@ -315,6 +331,7 @@ function Show-Help {
         Write-Host "  -O      <komponensek>   Deploy szűrése (alap: 'hosting', pl. 'firestore:rules,functions')"
         Write-Host "  -B      <ág>            Fő Git ág neve (alapértelmezett: 'main', vagy 'master')"
         Write-Host "  -S,  -SkipHostingSync   HTML verziószinkron (automatikus hosting deploy) kihagyása"
+        Write-Host "  -CL, -Cleanup           Promote után a preview ág és Firebase csatorna törlése"
         Write-Host "  -Y,  -Yes               Interaktív [I/N] jóváhagyás átugrása (azonnali futtatás)"
         Write-Host "  -I,  -Install           Globális parancs ('fireflow') regisztrálása a PowerShell profilban"
         Write-Host "  -L,  -Lang <hu|en|auto> Megjelenítési nyelv mentése (alapértelmezett: 'auto')"
@@ -368,6 +385,7 @@ function Show-Help {
         Write-Host "  -O      <components>    Deploy target filter (default: 'hosting', e.g. 'firestore:rules,functions')"
         Write-Host "  -B      <branch>        Main Git branch name (default: 'main' or 'master')"
         Write-Host "  -S,  -SkipHostingSync   Skip HTML version sync (automatic hosting deploy)"
+        Write-Host "  -CL, -Cleanup           Delete preview branch and Firebase channel after promote"
         Write-Host "  -Y,  -Yes               Skip interactive confirmation [Y/N] (non-interactive run)"
         Write-Host "  -I,  -Install           Register global 'fireflow' command in PowerShell profile"
         Write-Host "  -L,  -Lang <hu|en|auto> Save display language preference (default: 'auto')"
@@ -501,6 +519,7 @@ if ($branchCheck.Count -eq 0 -and @(git branch --list "master").Count -gt 0) {
     $MainBranch = "master"
 }
 $ResolvedMainBranch = $MainBranch
+$MainBranchName = $MainBranch
 
 # Intelligens csatornafelismerés: ha nem adtak meg -Channel paramétert és egy preview/ ágon állunk
 if (-not $PSBoundParameters.ContainsKey('Channel') -and $CurrentBranch.StartsWith("preview/")) {
@@ -793,6 +812,36 @@ if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrPushBranch }
 
 git push origin $NewVersion
 if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrPushTag }
+
+if ($Mode -eq "promote" -or $Promote) {
+    $ChannelName = if ($SourceBranch -and $SourceBranch.StartsWith("preview/")) {
+        $SourceBranch.Substring("preview/".Length)
+    } else {
+        $Channel
+    }
+    $YesToAll = $Yes
+
+    $doCleanup = $false
+    if ($Cleanup -or $YesToAll) {
+        $doCleanup = $true
+    } else {
+        $ans = Read-Host $Script:Lang[$LangKey].CleanupPrompt
+        if ($ans -match '^[iIyY]') {
+            $doCleanup = $true
+        }
+    }
+
+    if ($doCleanup) {
+        Write-Host ($Script:Lang[$LangKey].DelLocalBranch -f $ChannelName) -ForegroundColor Cyan
+        git branch -d "preview/$ChannelName"
+        
+        Write-Host ($Script:Lang[$LangKey].DelRemoteBranch -f $ChannelName) -ForegroundColor Cyan
+        git push origin --delete "preview/$ChannelName"
+        
+        Write-Host ($Script:Lang[$LangKey].DelFbChannel -f $ChannelName) -ForegroundColor Cyan
+        firebase hosting:channel:delete $ChannelName --force
+    }
+}
 
 Write-Header $Msg.SuccessTitle
 Write-Host ($Msg.SuccessMode -f $Mode.ToUpper()) -ForegroundColor Green
