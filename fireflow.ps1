@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     FireFlow - Universal Firebase Deploy, Git Branch & Version Management CLI Tool / Univerzális Firebase Deploy, Git Branch és Verziókezelő CLI Eszköz
 .DESCRIPTION
