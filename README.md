@@ -7,7 +7,7 @@
 <a id="fireflow-cli-en"></a>
 # FireFlow CLI (English)
 
-**Version:** `v1.2.2`  
+**Version:** `v1.3.0`  
 **Release Date:** October 24, 2026  
 **Type:** Universal Firebase Deploy, Git Branch & Version Management Tool (PowerShell)  
 **License:** GNU GPLv3
@@ -21,9 +21,12 @@
 Its goal is to coordinate the deployment of **Firebase Hosting, Cloud Functions, Firestore Rules, and Storage** components (to either production or preview channels) with **Git version control** (branches, commits, tags) in a single concise command, while guaranteeing that the version number displayed in client HTML source files always matches the running Git version tag.
 
 ### Key Features
-* **Short, one- or two-letter switches:** Minimal typing for daily workflows (`-P`, `-PR`, `-C`, `-T`, `-O`, `-I`, `-L`, `-h`).
+* **Short, one- or two-letter switches:** Minimal typing for daily workflows (`-P`, `-PR`, `-CL`, `-C`, `-T`, `-O`, `-I`, `-L`, `-h`).
 * **Smart Channel Auto-Detection:** When working on an active `preview/<channel>` branch, `-Channel` / `-C` is automatically resolved from the branch name for both preview deploys (`-P`) and promotions (`-PR`).
 * **Nested Branch Safety Guard:** Alerts if creating a preview branch from a non-main branch (e.g., from an existing preview branch), preventing accidental chain branching without explicit confirmation.
+* **Preview URL Extraction:** Automatically captures the Firebase Preview URL, displays it in the final summary, and copies it to the clipboard.
+* **Optional Cleanup (`-CL`, `-Cleanup`):** Automatically or interactively delete merged local/remote preview branches and the Firebase preview channel after a successful Promote (`-PR`).
+* **Dirty Working Tree Protection:** Prevents accidental merges by blocking the Promote (`-PR`) command if uncommitted changes are detected in the working directory.
 * **Byte-Exact HTML Injection & Restoration:** Replaces `__VERSION__` in HTML files for deployment and restores the exact original byte stream in a protected `finally` block without altering line breaks or injecting unwanted UTF-8 BOM.
 * **Bilingual CLI with Persistent Preference:** Full English and Hungarian support (`-L en` / `-L hu` / `-L auto`). The chosen language is saved persistently in a local `.fireflow-lang` file for future runs. If not set, it automatically detects your OS culture.
 * **Global CLI Installation (`-Install` / `-I`):** Register once in PowerShell `$PROFILE`, allowing execution simply via `fireflow` from any project directory without copying the script into each repository. Also handles `-?` gracefully without native PowerShell help interception.
@@ -66,6 +69,7 @@ PowerShell parameters and switches are case-insensitive (`-CM` = `-cm`, `-P` = `
 | **`-O`** | `-Only` | `hosting` | Comma-separated Firebase components (e.g. `firestore:rules,functions`). |
 | **`-B`** | `-MainBranch` | `main` | Project main Git branch (automatically falls back to `master` if `main` does not exist). |
 | **`-S`** | `-SkipHostingSync`| `false` | Disable automatic forced update of HTML version number (and hosting deploy). |
+| **`-CL`** | `-Cleanup` | `false` | Delete merged preview branch (local & remote) and Firebase channel after promote. |
 | **`-Y`** | `-Yes` | `false` | Skip interactive `[Y/N]` confirmation (for automated CI/CD runs). |
 | **`-I`** | `-Install` | `false` | **Global Setup:** Registers the `fireflow` command in PowerShell `$PROFILE`. |
 | **`-L`** | `-Lang` | `auto` | Language selection: `auto` (system culture), `hu` (Hungarian), `en` (English). Saves preference persistently for future runs (`-L auto` resets). |
@@ -86,14 +90,16 @@ Safe testing workflow before production release:
 3. Replaces `__VERSION__` in HTML files with this preview version using byte-exact UTF-8.
 4. Deploys hosting directly to the specified Firebase Preview Channel (`firebase hosting:channel:deploy`), while deploying any other requested services (`-O`).
 5. Restores the HTML placeholder byte-for-byte, then commits, tags, and pushes to the `preview/<Channel>` branch.
+6. **Preview URL Extraction:** Automatically captures the Firebase Preview URL, displays it in the final summary, and copies it to the clipboard.
 
 ### 3. `promote` Mode (`-PR` switch)
 Once all tests succeed on the preview channel, this mode finalizes the production release:
-1. Requires a clean working directory (all changes committed on the preview branch).
+1. **Dirty Working Tree Protection:** Prevents accidental merges by blocking the Promote (`-PR`) command if uncommitted changes are detected in the working directory.
 2. Automatically detects the preview channel if currently on `preview/<channel>` (or uses `-C`).
 3. Switches to the main branch (`main`), pulls latest changes, and merges (`git merge --no-ff`) the preview branch.
 4. Cleans the version string to a final release format (e.g. `v1.0.11-preview.2` becomes clean `v1.0.11`).
 5. Performs a complete live Firebase deploy with the updated HTML version number, creates the final Git release tag, and pushes to `main`.
+6. **Optional Cleanup (`-CL`, `-Cleanup`):** Automatically or interactively delete merged local/remote preview branches and the Firebase preview channel after a successful Promote (`-PR`).
 
 ### 4. Nested Preview Branching (Multi-Level Forks)
 In complex feature development, you might want to branch a secondary preview channel directly off an existing, active preview branch rather than `main` (for instance, starting `preview/feature-b` from `preview/feature-a`):
@@ -165,6 +171,9 @@ fireflow "New calendar test" -P -C test -T app
 ### 5. Merge Tested Preview Branch (Promote) and Deploy Live
 ```powershell
 fireflow -PR -C test -T app
+
+# With optional cleanup of merged preview branch and Firebase channel:
+fireflow -PR -C test -T app -CL
 ```
 
 ### 6. Subsequent Test Release on an Active Preview Branch (Auto Channel Detection)
@@ -203,7 +212,7 @@ This project is licensed under the [GNU General Public License v3.0 (GPLv3)](LIC
 <a id="fireflow-cli-hu"></a>
 # FireFlow CLI (Magyar)
 
-**Verzió:** `v1.2.2`  
+**Verzió:** `v1.3.0`  
 **Kiadás dátuma:** 2026. október 24.  
 **Típus:** Univerzális Firebase Deploy, Git Branch és Verziókezelő Eszköz (PowerShell)  
 **Licenc:** GNU GPLv3
@@ -217,9 +226,12 @@ A **FireFlow** (`fireflow.ps1`) egy egyfájlos, projekttől független CI/CD és
 Célja, hogy egyetlen rövid paranccsal összehangolja a **Firebase Hosting, Cloud Functions, Firestore Rules és Storage** komponensek éles vagy teszt (preview) telepítését a **Git verziókezeléssel** (branch-ek, commitok, tagek), miközben garantálja, hogy a böngészőben megjelenő HTML felületen mindig a ténylegesen futó Git verziószám látszódjon.
 
 ### Főbb képességek
-* **Rövid, egy-két betűs kapcsolók:** Minimális gépelés a napi munkafolyamatok során (`-P`, `-PR`, `-C`, `-T`, `-O`, `-I`, `-L`, `-h`).
+* **Rövid, egy-két betűs kapcsolók:** Minimális gépelés a napi munkafolyamatok során (`-P`, `-PR`, `-CL`, `-C`, `-T`, `-O`, `-I`, `-L`, `-h`).
 * **Intelligens csatornafelismerés:** Ha egy aktív `preview/<csatorna>` ágon állsz, a `-Channel` / `-C` megadása elhagyható mind a preview deploy (`-P`), mind a véglegesítés (`-PR`) során; a script automatikusan felismeri az ágból.
 * **Nem-főági elágazás védelme (Nested Fork Guard):** Figyelmeztet, ha nem a főágról (pl. egy másik tesztágról) indítanál új preview ágat, így megelőzi a véletlen egymásba ágyazott commit-öröklődést.
+* **Preview URL Kiemelése:** Automatikusan kinyeri a Firebase Preview URL-t, megjeleníti a záró összegzésben, és a vágólapra másolja.
+* **Opcionális takarítás (`-CL`, `-Cleanup`):** Promote (`-PR`) futtatása után automatikusan vagy interaktívan törli a beolvasztott helyi/távoli preview ágakat és a Firebase csatornát.
+* **Dirty Working Tree Védelem:** Megakadályozza a véletlen beolvasztásokat azáltal, hogy blokkolja a Promote (`-PR`) parancsot, ha nem commitolt módosítások vannak a munkakönyvtárban.
 * **Bájt-pontos HTML verzió-injektálás:** A `__VERSION__` helyőrző cseréjét és védett `finally` visszaállítását bájt-pontosan, BOM-mentes UTF-8 kódolással végzi, megóvva az eredeti fájlstruktúrát és soremeléseket.
 * **Kétnyelvű működés és tartós nyelvmentés:** Teljes angol és magyar támogatás (`-L en` / `-L hu` / `-L auto`). A választott nyelvet a script a helyi `.fireflow-lang` fájlban tartósan elmenti a jövőbeli futtatásokhoz. Ha nincs beállítva, automatikusan igazodik a rendszernyelvhez.
 * **Globális CLI telepítés (`-Install` / `-I`):** Egyszeri beállítás a PowerShell `$PROFILE`-ban, amely lehetővé teszi a `fireflow` futtatását bármely könyvtárból a script repókba másolgatása nélkül. Kezeli a `-?` kapcsolót is a natív Get-Help felülbírálásával.
@@ -262,6 +274,7 @@ A PowerShellben a kapcsolók nem kis- és nagybetű érzékenyek (`-CM` = `-cm`,
 | **`-O`** | `-Only` | `hosting` | Vesszővel elválasztott Firebase komponensek (pl. `firestore:rules,functions`). |
 | **`-B`** | `-MainBranch` | `main` | A projekt fő Git ága (automatikusan felismeri a `master`-t is). |
 | **`-S`** | `-SkipHostingSync`| `false` | Kikapcsolja a HTML verziószám (és a hosting) automatikus kényszerített frissítését. |
+| **`-CL`** | `-Cleanup` | `false` | Promote után törli a beolvasztott preview ágat (helyi és távoli) és a Firebase csatornát. |
 | **`-Y`** | `-Yes` | `false` | Átugorja az interaktív `[I/N]` megerősítést (automatizált futtatáshoz). |
 | **`-I`** | `-Install` | `false` | **Globális telepítés:** Regisztrálja a `fireflow` parancsot a PowerShell `$PROFILE`-ban. |
 | **`-L`** | `-Lang` | `auto` | Megjelenítési nyelv: `auto` (rendszernyelv alapján), `hu` (magyar), `en` (angol). Tartósan elmenti a választást a jövőbeli futtatásokhoz (`-L auto` visszaállítja). |
@@ -282,14 +295,16 @@ Biztonságos tesztelési munkafolyamat élesítés előtt:
 3. A HTML fájlokban bájt-pontosan lecseréli a `__VERSION__` placeholdert erre a preview verzióra.
 4. A hostingot a megadott Firebase Preview Channelre (`firebase hosting:channel:deploy`) tölti fel, míg az esetleges egyéb komponenseket (`-O`) frissíti.
 5. Védett módon visszaállítja a HTML placeholdert, majd commitol, tagel és pushol a `preview/<Channel>` Git ágra.
+6. **Preview URL Kiemelése:** Automatikusan kinyeri a Firebase Preview URL-t, megjeleníti a záró összegzésben, és a vágólapra másolja.
 
 ### 3. `promote` mód (`-PR` kapcsoló)
 Amikor a preview csatornán minden teszt sikeres volt, ez a mód véglegesíti a kiadást:
-1. Megköveteli a tiszta munkakönyvtárat (minden változás legyen már commitolva a preview ágon).
+1. **Dirty Working Tree Védelem:** Megakadályozza a véletlen beolvasztásokat azáltal, hogy blokkolja a Promote (`-PR`) parancsot, ha nem commitolt módosítások vannak a munkakönyvtárban.
 2. Ha egy `preview/<csatorna>` ágon állsz, a `-C` elhagyása esetén is automatikusan felismeri az adott csatornát.
 3. Átvált a főágra (`main`), frissíti azt (`git pull`), majd beolvasztja (`git merge --no-ff`) a preview ágat.
 4. A verziószámot lecsupaszítja végleges formátumra (pl. a `v1.0.11-preview.2`-ből tiszta `v1.0.11` lesz).
 5. Elvégzi a teljes éles Firebase deployt a frissített HTML verziószámmal, majd felteszi a végleges Git taget és pusholja a főágat.
+6. **Opcionális takarítás (`-CL`, `-Cleanup`):** Promote (`-PR`) futtatása után automatikusan vagy interaktívan törli a beolvasztott helyi/távoli preview ágakat és a Firebase csatornát.
 
 ### 4. Egymásba ágyazott Preview ágak (Többszintű elágazások)
 Összetett fejlesztési feladatok során előfordulhat, hogy egy új preview csatornát nem a főágból (`main`), hanem egy már létező, aktív tesztágból szeretnél indítani (például a `preview/feature-b` ágat a `preview/feature-a` ágból):
@@ -361,6 +376,9 @@ fireflow "Új naptár teszt" -P -C teszt -T app
 ### 5. Letesztelt Preview ág beolvasztása (promote) és élesítése
 ```powershell
 fireflow -PR -C teszt -T app
+
+# Opcionális takarítással a beolvasztott preview ág és Firebase csatorna törléséhez:
+fireflow -PR -C teszt -T app -CL
 ```
 
 ### 6. További teszt kiadás egy már aktív preview ágon (Automatikus csatornafelismerés)
