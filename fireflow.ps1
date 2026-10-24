@@ -785,9 +785,9 @@ try {
             Write-Host ($Msg.DeployHosting -f $Channel) -ForegroundColor DarkCyan
             $ChannelName = $Channel
             if ([string]::IsNullOrWhiteSpace($Target)) {
-                $FbOutput = firebase hosting:channel:deploy $ChannelName 2>&1 | Tee-Object -Variable fbTeeVar
+                firebase hosting:channel:deploy $ChannelName 2>&1 | Tee-Object -Variable fbTeeVar
             } else {
-                $FbOutput = firebase hosting:channel:deploy $ChannelName --only $Target 2>&1 | Tee-Object -Variable fbTeeVar
+                firebase hosting:channel:deploy $ChannelName --only $Target 2>&1 | Tee-Object -Variable fbTeeVar
             }
             if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrPreviewDeploy }
 
