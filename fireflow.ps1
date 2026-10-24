@@ -99,7 +99,7 @@ param(
 # ESZKÖZ ÖNVERZIÓZÁSA (Antigravity frissíti a saját repó alapján)
 # =====================================================================
 $ToolName = "FireFlow"
-$ToolVersion = "v1.3.1-beta"
+$ToolVersion = "v1.3.0"
 
 $ErrorActionPreference = "Stop"
 
@@ -172,6 +172,7 @@ $Script:Lang = @{
         ErrInvalidBaseVer    = "Érvénytelen alapverzió formátum: {0}"
         ErrNoModifiedFiles   = "Nincs módosított fájl a munkakönyvtárban. A deploy leállt. (Súgó: fireflow -h)"
         ErrPromoteDirty      = "A 'promote' (-PR) mód tiszta munkakönyvtárat igényel. Előbb commitold vagy stasheld a változásokat!"
+        DirtyTreeError       = "HIBA: Nem commitolt modositasok vannak a munkakonyvtarban! Kerek egy 'fireflow -P' futtatast, vagy tedd felre a modositasokat (git stash) a Promote elott."
         PromptCommitMsg      = "Add meg a commit üzenetet"
         ErrEmptyCommitMsg    = "A commit üzenet nem lehet üres!"
         PlanTitle            = "KIADÁSI TERV ({0})"
@@ -239,6 +240,7 @@ $Script:Lang = @{
         ErrInvalidBaseVer    = "Invalid base version format: {0}"
         ErrNoModifiedFiles   = "No modified files in working directory. Deploy aborted. (Help: fireflow -h)"
         ErrPromoteDirty      = "The 'promote' (-PR) mode requires a clean working directory. Commit or stash your changes first!"
+        DirtyTreeError       = "ERROR: Uncommitted changes detected in the working tree! Please commit them (e.g., 'fireflow -P') or stash them before running Promote."
         PromptCommitMsg      = "Enter commit message"
         ErrEmptyCommitMsg    = "Commit message cannot be empty!"
         PlanTitle            = "RELEASE PLAN ({0})"
@@ -498,7 +500,21 @@ if ($Preview -and $Promote) {
     Fail $Msg.ErrPreviewPromote
 }
 if ($Preview) { $Mode = "preview" }
-if ($Promote) { $Mode = "promote" }
+if ($Promote) {
+    $gitStatus = git status --porcelain
+    if (![string]::IsNullOrWhiteSpace($gitStatus)) {
+        Write-Host "`n$($Script:Lang[$LangKey].DirtyTreeError)`n" -ForegroundColor Red
+        exit 1
+    }
+    $Mode = "promote"
+}
+elseif ($Mode -eq "promote") {
+    $gitStatus = git status --porcelain
+    if (![string]::IsNullOrWhiteSpace($gitStatus)) {
+        Write-Host "`n$($Script:Lang[$LangKey].DirtyTreeError)`n" -ForegroundColor Red
+        exit 1
+    }
+}
 
 # 1. Alapvető környezet ellenőrzése
 $ProjectRoot = (Get-Location).Path
