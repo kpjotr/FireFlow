@@ -99,7 +99,7 @@ param(
 # ESZKÖZ ÖNVERZIÓZÁSA (Antigravity frissíti a saját repó alapján)
 # =====================================================================
 $ToolName = "FireFlow"
-$ToolVersion = "v1.3.0-dev"
+$ToolVersion = "v1.3.1-beta"
 
 $ErrorActionPreference = "Stop"
 
@@ -213,6 +213,7 @@ $Script:Lang = @{
         DelLocalBranch       = "Helyi Git ág törlése: preview/{0}..."
         DelRemoteBranch      = "Távoli Git ág törlése: preview/{0}..."
         DelFbChannel         = "Firebase preview csatorna törlése: {0}..."
+        UrlCopied            = "A Preview URL a vágólapra másolva!"
         SuccessTitle         = "SIKERES FOLYAMAT!"
         SuccessMode          = "Mód:          {0}"
         SuccessBranch        = "Aktív ág:     {0}"
@@ -279,6 +280,7 @@ $Script:Lang = @{
         DelLocalBranch       = "Deleting local Git branch: preview/{0}..."
         DelRemoteBranch      = "Deleting remote Git branch: preview/{0}..."
         DelFbChannel         = "Deleting Firebase preview channel: {0}..."
+        UrlCopied            = "Preview URL copied to clipboard!"
         SuccessTitle         = "RELEASE SUCCESSFUL!"
         SuccessMode          = "Mode:          {0}"
         SuccessBranch        = "Active branch: {0}"
@@ -738,6 +740,7 @@ elseif ($Mode -eq "promote") {
 
 # Eredeti HTML tartalmak mentése a memóriába és bájt-pontos helyettesítés
 $BackupHtmlContent = @{}
+$PreviewUrl = $null
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 try {
     foreach ($vf in $VersionFiles) {
@@ -764,12 +767,19 @@ try {
         $hasHostingTarget = @($DeployOnlyList | Where-Object { $_ -eq "hosting" -or $_.StartsWith("hosting:") }).Count -gt 0
         if ($hasHostingTarget) {
             Write-Host ($Msg.DeployHosting -f $Channel) -ForegroundColor DarkCyan
+            $ChannelName = $Channel
             if ([string]::IsNullOrWhiteSpace($Target)) {
-                & $FirebaseCmd hosting:channel:deploy $Channel
+                $FbOutput = firebase hosting:channel:deploy $ChannelName 2>&1 | Tee-Object -Variable fbTeeVar
             } else {
-                & $FirebaseCmd hosting:channel:deploy $Channel --only $Target
+                $FbOutput = firebase hosting:channel:deploy $ChannelName --only $Target 2>&1 | Tee-Object -Variable fbTeeVar
             }
             if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrPreviewDeploy }
+
+            $PreviewUrl = $null
+            $urlLine = $fbTeeVar | Where-Object { $_ -match 'https://[^\s]+\.web\.app' -or $_ -match 'https://[^\s]+\.firebaseapp\.com' } | Select-Object -Last 1
+            if ($urlLine -match '(https://[^\s]+)') {
+                $PreviewUrl = $matches[1]
+            }
         }
     }
     else {
@@ -833,17 +843,32 @@ if ($Mode -eq "promote" -or $Promote) {
 
     if ($doCleanup) {
         Write-Host ($Script:Lang[$LangKey].DelLocalBranch -f $ChannelName) -ForegroundColor Cyan
-        git branch -d "preview/$ChannelName"
+        cmd /c "echo n | git branch -d `"preview/$ChannelName`" 2>&1" | Out-Null
         
         Write-Host ($Script:Lang[$LangKey].DelRemoteBranch -f $ChannelName) -ForegroundColor Cyan
-        git push origin --delete "preview/$ChannelName"
+        cmd /c "echo n | git push origin --delete `"preview/$ChannelName`" 2>&1" | Out-Null
         
         Write-Host ($Script:Lang[$LangKey].DelFbChannel -f $ChannelName) -ForegroundColor Cyan
         firebase hosting:channel:delete $ChannelName --force
+
+        # Cleanup empty Git tracking directories after lock releases
+        Start-Sleep -Milliseconds 500
+        $gitDirs = @(".git/refs/heads/preview", ".git/logs/refs/heads/preview", ".git/refs/remotes/origin/preview", ".git/logs/refs/remotes/origin/preview")
+        foreach ($dir in $gitDirs) {
+            if (Test-Path $dir) {
+                $items = Get-ChildItem $dir -Force
+                if ($items.Count -eq 0) { Remove-Item -Path $dir -Force -Recurse -ErrorAction SilentlyContinue }
+            }
+        }
     }
 }
 
 Write-Header $Msg.SuccessTitle
+if ($PreviewUrl) {
+    Write-Host "`nPreview URL: $PreviewUrl" -ForegroundColor Cyan
+    Set-Clipboard -Value $PreviewUrl
+    Write-Host $Script:Lang[$LangKey].UrlCopied -ForegroundColor Green
+}
 Write-Host ($Msg.SuccessMode -f $Mode.ToUpper()) -ForegroundColor Green
 Write-Host ($Msg.SuccessBranch -f $ActiveBranch) -ForegroundColor Green
 Write-Host ($Msg.SuccessTag -f $NewVersion) -ForegroundColor Green
