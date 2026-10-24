@@ -428,3 +428,6 @@ FodyWeavers.xsd
 #*.lscache
 # FireFlow local language configuration
 .fireflow-lang
+
+# User created temp folder and files
+/temp

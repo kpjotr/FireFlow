@@ -96,7 +96,7 @@ param(
 # ESZKÖZ ÖNVERZIÓZÁSA (Antigravity frissíti a saját repó alapján)
 # =====================================================================
 $ToolName = "FireFlow"
-$ToolVersion = "v1.2.1"
+$ToolVersion = "v1.2.2"
 
 $ErrorActionPreference = "Stop"
 
@@ -180,6 +180,8 @@ $Msg = @{
         PlanHtmlFiles        = "Verziózandó HTML fájlok (__VERSION__ -> {0}):"
         PlanNoPlaceholder    = "FIGYELEM: Nem található '__VERSION__' placeholder egyetlen HTML fájlban sem!"
         PlanModifiedFiles    = "Módosított / Commitra váró fájlok (ellenőrizd, nincs-e köztük szemét!):"
+        WarnNestedBranch     = "FIGYELEM: Nem a főágon ({0}), hanem a(z) '{1}' ágon állsz! Az új '{2}' ág ebből fog elágazni (vagy ide vált át), így örökölni fogja annak eddigi commitjait."
+        PromptNestedConfirm  = "Biztosan elágaztatod a(z) '{0}' preview ágat a(z) '{1}' ágból a főág ({2}) helyett? [I/N]"
         PromptConfirm        = "Elindítod a folyamatot ezekkel a beállításokkal? [I/N]"
         UserCancelled        = "Folyamat megszakítva a felhasználó által."
         SwitchingPreview     = "`nÁtváltás a preview ágra: {0}..."
@@ -240,6 +242,8 @@ $Msg = @{
         PlanHtmlFiles        = "HTML files to version (__VERSION__ -> {0}):"
         PlanNoPlaceholder    = "WARNING: No '__VERSION__' placeholder found in any HTML file!"
         PlanModifiedFiles    = "Modified / Staged files (verify no unwanted files are included):"
+        WarnNestedBranch     = "WARNING: You are currently on '{1}' instead of the main branch ({0})! The target branch '{2}' will branch off from here, inheriting its commits."
+        PromptNestedConfirm  = "Are you sure you want to branch '{0}' off of '{1}' instead of the main branch ({2})? [Y/N]"
         PromptConfirm        = "Proceed with these settings? [Y/N]"
         UserCancelled        = "Operation cancelled by user."
         SwitchingPreview     = "`nSwitching to preview branch: {0}..."
@@ -306,7 +310,7 @@ function Show-Help {
         Write-Host "  -CM     <szöveg>        Commit üzenet (1. pozicionális paraméter, elhagyható a -CM)"
         Write-Host "  -R      <típus>         Verzióléptetés: patch (alap), minor, major (2. pozicionális)"
         Write-Host "  -M      <mód>           Működési mód explicit megadása: live, preview, promote"
-        Write-Host "  -C      <csatorna>      Preview csatorna és Git ág neve (alapértelmezett: 'preview')"
+        Write-Host "  -C      <csatorna>      Preview csatorna és Git ág neve (alap: 'preview', preview/* ágon automatikus)"
         Write-Host "  -T      <target>        Firebase Hosting target neve (multi-site projektekhez)"
         Write-Host "  -O      <komponensek>   Deploy szűrése (alap: 'hosting', pl. 'firestore:rules,functions')"
         Write-Host "  -B      <ág>            Fő Git ág neve (alapértelmezett: 'main', vagy 'master')"
@@ -337,6 +341,9 @@ function Show-Help {
         Write-Host "  5. Letesztelt Preview ág beolvasztása (merge) és élesítése:" -ForegroundColor Cyan
         Write-Host "     fireflow -PR -C teszt -T app"
         Write-Host ""
+        Write-Host "  6. További teszt kiadás egy már aktív preview ágon (automatikus csatornafelismerés):" -ForegroundColor Cyan
+        Write-Host "     fireflow `"További javítások`" -P"
+        Write-Host ""
     } else {
         Write-Host ""
         Write-Host "=====================================================================" -ForegroundColor DarkCyan
@@ -356,7 +363,7 @@ function Show-Help {
         Write-Host "  -CM     <text>          Commit message (1st positional parameter, -CM can be omitted)"
         Write-Host "  -R      <type>          Version increment: patch (default), minor, major (2nd positional)"
         Write-Host "  -M      <mode>          Explicit mode specification: live, preview, promote"
-        Write-Host "  -C      <channel>       Preview channel and Git branch name (default: 'preview')"
+        Write-Host "  -C      <channel>       Preview channel and Git branch name (default: 'preview', auto on preview/*)"
         Write-Host "  -T      <target>        Firebase Hosting target name (for multi-site projects)"
         Write-Host "  -O      <components>    Deploy target filter (default: 'hosting', e.g. 'firestore:rules,functions')"
         Write-Host "  -B      <branch>        Main Git branch name (default: 'main' or 'master')"
@@ -386,6 +393,9 @@ function Show-Help {
         Write-Host ""
         Write-Host "  5. Merge tested preview branch (promote) and deploy live:" -ForegroundColor Cyan
         Write-Host "     fireflow -PR -C test -T app"
+        Write-Host ""
+        Write-Host "  6. Further test release on an active preview branch (auto channel detection):" -ForegroundColor Cyan
+        Write-Host "     fireflow `"Additional fixes`" -P"
         Write-Host ""
     }
 }
@@ -490,6 +500,12 @@ $branchCheck = @(git branch --list $MainBranch)
 if ($branchCheck.Count -eq 0 -and @(git branch --list "master").Count -gt 0) {
     $MainBranch = "master"
 }
+$ResolvedMainBranch = $MainBranch
+
+# Intelligens csatornafelismerés: ha nem adtak meg -Channel paramétert és egy preview/ ágon állunk
+if (-not $PSBoundParameters.ContainsKey('Channel') -and $CurrentBranch.StartsWith("preview/")) {
+    $Channel = $CurrentBranch.Substring("preview/".Length)
+}
 
 # 3. Legutóbbi stabil (vX.Y.Z) verzió megkeresése
 $stableTags = @(git tag --list "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })
@@ -517,9 +533,7 @@ $TargetBranch = $CurrentBranch
 
 if ($Mode -eq "preview") {
     $safeChannel = $Channel -replace '[^a-zA-Z0-9_-]', '-'
-    if ($CurrentBranch -eq $MainBranch) {
-        $TargetBranch = "preview/$safeChannel"
-    }
+    $TargetBranch = "preview/$safeChannel"
     
     # Megkeressük az adott alapverzióhoz tartozó legmagasabb preview build számot
     $previewTags = @(git tag --list "$nextBaseVersion-preview.*" --sort=-v:refname)
@@ -559,7 +573,7 @@ foreach ($dir in $publicDirs) {
     if (Test-Path $fullDir) {
         $htmlFiles = Get-ChildItem -Path $fullDir -Filter "*.html" -Recurse -File
         foreach ($file in $htmlFiles) {
-            $content = Get-Content $file.FullName -Raw -Encoding UTF8
+            $content = [System.IO.File]::ReadAllText($file.FullName, [System.Text.Encoding]::UTF8)
             if ($content -match '__VERSION__') {
                 $VersionFiles += $file.FullName
             }
@@ -651,6 +665,23 @@ if ($GitStatus.Count -gt 0) {
     }
 }
 
+# Nem-főági elágazás (Nested Fork) ellenőrzése és megerősítése
+if ($Mode -eq "preview" -and $CurrentBranch -ne $TargetBranch -and $CurrentBranch -ne $ResolvedMainBranch) {
+    Write-Host ""
+    Write-Host "=====================================================================" -ForegroundColor Yellow
+    Write-Host ($Msg.WarnNestedBranch -f $ResolvedMainBranch, $CurrentBranch, $TargetBranch) -ForegroundColor Yellow
+    Write-Host "=====================================================================" -ForegroundColor Yellow
+    Write-Host ""
+
+    if (-not $Yes) {
+        $nestedConfirm = Read-Host ($Msg.PromptNestedConfirm -f $TargetBranch, $CurrentBranch, $ResolvedMainBranch)
+        if ($nestedConfirm -notmatch '^[iIyY]$') {
+            Write-Host $Msg.UserCancelled -ForegroundColor Yellow
+            exit 0
+        }
+    }
+}
+
 Write-Host ""
 if (-not $Yes) {
     $confirm = Read-Host $Msg.PromptConfirm
@@ -686,14 +717,15 @@ elseif ($Mode -eq "promote") {
     if ($LASTEXITCODE -ne 0) { Fail $Msg.ErrMergeFailed }
 }
 
-# Eredeti HTML tartalmak mentése a memóriába
+# Eredeti HTML tartalmak mentése a memóriába és bájt-pontos helyettesítés
 $BackupHtmlContent = @{}
+$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 try {
     foreach ($vf in $VersionFiles) {
-        $rawContent = Get-Content $vf -Raw -Encoding UTF8
+        $rawContent = [System.IO.File]::ReadAllText($vf, [System.Text.Encoding]::UTF8)
         $BackupHtmlContent[$vf] = $rawContent
         $updatedContent = $rawContent.Replace("__VERSION__", $NewVersion)
-        Set-Content -Path $vf -Value $updatedContent -Encoding UTF8 -NoNewline
+        [System.IO.File]::WriteAllText($vf, $updatedContent, $Utf8NoBom)
     }
 
     # FIREBASE DEPLOY FUTTATÁSA
@@ -728,11 +760,11 @@ try {
     }
 }
 finally {
-    # GARANTÁLT VISSZAÁLLÍTÁS: A __VERSION__ placeholder visszaírása a forrásfájlokba
+    # GARANTÁLT VISSZAÁLLÍTÁS: A __VERSION__ placeholder bájt-pontos visszaírása a forrásfájlokba
     if ($BackupHtmlContent.Count -gt 0) {
         Write-Host $Msg.RestoringHtml -ForegroundColor DarkGray
         foreach ($vf in $BackupHtmlContent.Keys) {
-            Set-Content -Path $vf -Value $BackupHtmlContent[$vf] -Encoding UTF8 -NoNewline
+            [System.IO.File]::WriteAllText($vf, $BackupHtmlContent[$vf], $Utf8NoBom)
         }
     }
 }
